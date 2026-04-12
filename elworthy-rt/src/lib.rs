@@ -11,7 +11,8 @@
 //! is typically 5-30x faster depending on expression complexity.
 
 use elworthy_codegen::{eval, KernelCache, KernelShape, ScalarKernel, VectorKernel};
-use elworthy_expr::{Expr, Var};
+use elworthy_diff::diff;
+use elworthy_expr::{simplify, Expr, Var};
 use rand::distributions::Distribution;
 use rand::SeedableRng;
 use rand_distr::StandardNormal;
@@ -265,6 +266,100 @@ pub fn euler_scalar_jit_delta_bel(
     })
 }
 
+/// Euler-Maruyama price + Bismut-Elworthy-Li delta using the **general
+/// tangent-flow** weight, valid for any scalar SDE.
+///
+/// The Malliavin weight is
+///
+/// ```text
+/// pi = (1 / T) * integral_0^T (Y_s / sigma(X_s)) dW_s
+/// ```
+///
+/// with `Y_s = dX_s / dx_0` satisfying the tangent SDE
+///
+/// ```text
+/// dY_s = mu'(X_s) Y_s ds + sigma'(X_s) Y_s dW_s,   Y_0 = 1.
+/// ```
+///
+/// This driver symbolically differentiates `mu` and `sigma` with respect
+/// to the state, JIT-compiles `mu`, `sigma`, `mu'`, `sigma'`, and
+/// `payoff`, and advances `(X, Y, pi)` with a shared Brownian increment
+/// per step. The constant-flow `euler_scalar_jit_delta_bel` is a special
+/// case (recoverable by setting `sigma'(X) = sigma'(X_0)` constant).
+#[allow(clippy::too_many_arguments)]
+pub fn euler_scalar_jit_delta_tangent(
+    mu: &Expr,
+    sigma: &Expr,
+    payoff: &Expr,
+    params: &[f64],
+    x0: f64,
+    horizon: f64,
+    n_steps: usize,
+    n_paths: usize,
+    seed: u64,
+) -> Result<PriceAndDelta, elworthy_codegen::CodegenError> {
+    let state_var = Var::State(0);
+    let dmu = simplify(&diff(mu, &state_var));
+    let dsigma = simplify(&diff(sigma, &state_var));
+
+    let shape = KernelShape {
+        n_state: 1,
+        n_params: params.len(),
+        n_dw: 0,
+    };
+    let mu_k = ScalarKernel::compile(mu, shape)?;
+    let sig_k = ScalarKernel::compile(sigma, shape)?;
+    let dmu_k = ScalarKernel::compile(&dmu, shape)?;
+    let dsig_k = ScalarKernel::compile(&dsigma, shape)?;
+    let pay_k = ScalarKernel::compile(payoff, shape)?;
+
+    let dt = horizon / n_steps as f64;
+    let sqrt_dt = dt.sqrt();
+    let inv_t = 1.0 / horizon;
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+
+    let mut sum_price = 0.0;
+    let mut sum_price_sq = 0.0;
+    let mut sum_delta = 0.0;
+    let mut sum_delta_sq = 0.0;
+
+    let mut state = [0.0f64; 1];
+
+    for _ in 0..n_paths {
+        state[0] = x0;
+        let mut y = 1.0_f64;
+        let mut pi = 0.0_f64;
+        let mut t = 0.0;
+        for _ in 0..n_steps {
+            let z: f64 = StandardNormal.sample(&mut rng);
+            let dw = sqrt_dt * z;
+            let mu_v = mu_k.call(&state, params, t, &[]);
+            let sig_v = sig_k.call(&state, params, t, &[]);
+            let dmu_v = dmu_k.call(&state, params, t, &[]);
+            let dsig_v = dsig_k.call(&state, params, t, &[]);
+
+            // Accumulate weight integrand at the pre-update point.
+            pi += inv_t * (y / sig_v) * dw;
+
+            // Advance X and Y with the same dW increment.
+            state[0] += mu_v * dt + sig_v * dw;
+            y += dmu_v * y * dt + dsig_v * y * dw;
+            t += dt;
+        }
+        let f = pay_k.call(&state, params, horizon, &[]);
+        let delta_sample = f * pi;
+        sum_price += f;
+        sum_price_sq += f * f;
+        sum_delta += delta_sample;
+        sum_delta_sq += delta_sample * delta_sample;
+    }
+
+    Ok(PriceAndDelta {
+        price: finalise(sum_price, sum_price_sq, n_paths),
+        delta: finalise(sum_delta, sum_delta_sq, n_paths),
+    })
+}
+
 fn finalise(sum: f64, sum_sq: f64, n_paths: usize) -> Estimate {
     let n = n_paths as f64;
     let mean = sum / n;
@@ -445,6 +540,59 @@ mod tests {
             out.delta.mean,
             expected,
             out.delta.stderr,
+        );
+    }
+
+    #[test]
+    fn tangent_flow_delta_gbm_matches_analytic() {
+        // General tangent-flow weight should reduce to the analytic delta
+        // exp(r T) for a linear GBM payoff, same as the constant-flow case.
+        let (r, _, x0, t, mu, sig, payoff, params) = gbm_case();
+        let out =
+            euler_scalar_jit_delta_tangent(&mu, &sig, &payoff, &params, x0, t, 256, 40_000, 2026)
+                .unwrap();
+        let expected = (r * t).exp();
+        let tol = 4.0 * out.delta.stderr + 0.01;
+        assert!(
+            (out.delta.mean - expected).abs() < tol,
+            "tangent-flow delta {} vs analytic {} (stderr {})",
+            out.delta.mean,
+            expected,
+            out.delta.stderr,
+        );
+    }
+
+    #[test]
+    fn tangent_flow_delta_sqrt_diffusion_matches_fd() {
+        // SDE with square-root diffusion: dX = r X dt + v * sqrt(X) dW.
+        // The constant-flow BEL approximation mis-specifies the weight;
+        // the tangent-flow form should match central finite-difference.
+        use elworthy_expr::Fun;
+        let r = 0.04;
+        let v = 0.3;
+        let x0 = 100.0;
+        let t = 0.5;
+        let params = [r, v];
+        let mu = Expr::param(0) * Expr::state(0);
+        let sig = Expr::param(1) * Expr::state(0).apply(Fun::Sqrt);
+        let payoff = Expr::state(0);
+
+        let bel =
+            euler_scalar_jit_delta_tangent(&mu, &sig, &payoff, &params, x0, t, 512, 80_000, 77)
+                .unwrap();
+
+        let h = 0.5;
+        let up = euler_scalar_jit(&mu, &sig, &payoff, &params, x0 + h, t, 512, 80_000, 77).unwrap();
+        let dn = euler_scalar_jit(&mu, &sig, &payoff, &params, x0 - h, t, 512, 80_000, 77).unwrap();
+        let fd_delta = (up.mean - dn.mean) / (2.0 * h);
+
+        let tol = 4.0 * bel.delta.stderr + 0.05;
+        assert!(
+            (bel.delta.mean - fd_delta).abs() < tol,
+            "tangent-flow BEL {} vs FD {} (stderr {})",
+            bel.delta.mean,
+            fd_delta,
+            bel.delta.stderr,
         );
     }
 

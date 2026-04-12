@@ -16,10 +16,11 @@ At the terminal time the unbiased Greek estimator is `E[f(X_T) * pi]`.
 
 | Greek                  | Status     |
 |------------------------|------------|
-| Delta (scalar SDE)     | Implemented |
+| Delta, constant tangent flow (GBM, ABM) | Implemented here via `synthesise_scalar_delta` |
+| Delta, general tangent flow (arbitrary scalar SDE) | Implemented in `elworthy-rt::euler_scalar_jit_delta_tangent` (on-the-fly symbolic diff of `mu`, `sigma`) |
 | Gamma (scalar SDE)     | Planned    |
 | Vega (scalar SDE)      | Planned    |
-| Parameter (arbitrary)  | Planned (requires tangent flow) |
+| Parameter (arbitrary)  | Planned (tangent flow w.r.t. `theta_i`) |
 | Multi-dimensional      | Planned    |
 
 ## Theoretical basis

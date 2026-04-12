@@ -42,6 +42,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `CodegenError::UnsupportedVectorFun` removed (no longer reachable).
 - `elworthy-rt::euler_scalar_jit_cached` takes `&mut KernelCache` so calibration loops reuse compiled kernels across parameter sweeps. Verified by a test that sweeps five `(r, sigma)` pairs through a GBM setup and confirms the cache holds exactly three kernels (mu, sigma, payoff), not fifteen.
 
+### Added (general tangent-flow BEL)
+
+- `elworthy-rt::euler_scalar_jit_delta_tangent`: general tangent-flow Bismut-Elworthy-Li delta driver for arbitrary scalar SDEs. Symbolically differentiates `mu` and `sigma` with respect to the state, JIT-compiles five kernels (`mu`, `sigma`, `mu'`, `sigma'`, `payoff`), and advances `(X, Y, pi)` under a shared Brownian increment per step.
+- Tests: reduces to analytic `exp(rT)` on GBM, and matches central finite-difference delta on an SDE with square-root diffusion where the constant-flow approximation would mis-specify the weight.
+
 ### Planned
 
 - SIMD-over-paths `VectorKernel` (f64x4 / f64x8).
