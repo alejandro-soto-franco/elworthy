@@ -10,7 +10,7 @@
 //! Both produce the same `Estimate` within statistical noise; the JIT path
 //! is typically 5-30x faster depending on expression complexity.
 
-use elworthy_codegen::{eval, KernelShape, ScalarKernel, VectorKernel};
+use elworthy_codegen::{eval, KernelCache, KernelShape, ScalarKernel, VectorKernel};
 use elworthy_expr::{Expr, Var};
 use rand::distributions::Distribution;
 use rand::SeedableRng;
@@ -105,6 +105,60 @@ pub fn euler_scalar_jit(
     let mut sum = 0.0;
     let mut sum_sq = 0.0;
 
+    let mut state = [0.0f64; 1];
+
+    for _ in 0..n_paths {
+        state[0] = x0;
+        let mut t = 0.0;
+        for _ in 0..n_steps {
+            let dw: f64 = StandardNormal.sample(&mut rng);
+            let drift = mu_k.call(&state, params, t, &[]);
+            let diffusion = sig_k.call(&state, params, t, &[]);
+            state[0] += drift * dt + diffusion * sqrt_dt * dw;
+            t += dt;
+        }
+        let f = pay_k.call(&state, params, horizon, &[]);
+        sum += f;
+        sum_sq += f * f;
+    }
+
+    Ok(finalise(sum, sum_sq, n_paths))
+}
+
+/// Cached variant of `euler_scalar_jit` that reuses kernels across calls.
+///
+/// Useful for calibration loops that evaluate the same symbolic SDE
+/// coefficients with different parameter values. Passes the `Expr`s
+/// through `KernelCache::get_or_compile` so identical expressions across
+/// calls skip recompilation.
+#[allow(clippy::too_many_arguments)]
+pub fn euler_scalar_jit_cached(
+    cache: &mut KernelCache,
+    mu: &Expr,
+    sigma: &Expr,
+    payoff: &Expr,
+    params: &[f64],
+    x0: f64,
+    horizon: f64,
+    n_steps: usize,
+    n_paths: usize,
+    seed: u64,
+) -> Result<Estimate, elworthy_codegen::CodegenError> {
+    let shape = KernelShape {
+        n_state: 1,
+        n_params: params.len(),
+        n_dw: 0,
+    };
+    let mu_k = cache.get_or_compile(mu, shape)?;
+    let sig_k = cache.get_or_compile(sigma, shape)?;
+    let pay_k = cache.get_or_compile(payoff, shape)?;
+
+    let dt = horizon / n_steps as f64;
+    let sqrt_dt = dt.sqrt();
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+
+    let mut sum = 0.0;
+    let mut sum_sq = 0.0;
     let mut state = [0.0f64; 1];
 
     for _ in 0..n_paths {
@@ -324,6 +378,30 @@ mod tests {
         let expected = x0 * (r * t).exp();
         let tol = 4.0 * est.stderr + 0.5;
         assert!((est.mean - expected).abs() < tol);
+    }
+
+    #[test]
+    fn cached_driver_reuses_kernels_across_param_sweeps() {
+        let (_, _, x0, t, mu, sig, payoff, _) = gbm_case();
+        let mut cache = KernelCache::new();
+        // Sweep five (r, sigma) pairs through the same symbolic SDE.
+        let sweep = [
+            (0.03, 0.15),
+            (0.05, 0.20),
+            (0.07, 0.25),
+            (0.04, 0.18),
+            (0.06, 0.22),
+        ];
+        for (r, sigma) in sweep {
+            let params = [r, sigma];
+            let est = euler_scalar_jit_cached(
+                &mut cache, &mu, &sig, &payoff, &params, x0, t, 64, 2_000, 123,
+            )
+            .unwrap();
+            assert!(est.mean.is_finite());
+        }
+        // Three kernels: mu, sigma, payoff. All five sweeps reuse them.
+        assert_eq!(cache.len(), 3, "cache should hold exactly 3 unique kernels");
     }
 
     #[test]

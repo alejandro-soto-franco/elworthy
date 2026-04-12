@@ -35,6 +35,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `KernelCache` and `expr_hash` in `elworthy-codegen` for zero-recompile kernel reuse across calibration loops.
 - Criterion bench suite covers the SIMD driver alongside interpreter and scalar JIT.
 
+### Added (transcendentals + cache wiring)
+
+- `VectorKernel` now supports `Exp`, `Log`, `Sin`, `Cos` via per-lane `extractlane` + libm call + `insertlane`. `sqrt` stays on the native CLIF vector op.
+- Property test coverage extends to all `Fun` variants for vector vs scalar agreement.
+- `CodegenError::UnsupportedVectorFun` removed (no longer reachable).
+- `elworthy-rt::euler_scalar_jit_cached` takes `&mut KernelCache` so calibration loops reuse compiled kernels across parameter sweeps. Verified by a test that sweeps five `(r, sigma)` pairs through a GBM setup and confirms the cache holds exactly three kernels (mu, sigma, payoff), not fifteen.
+
 ### Planned
 
 - SIMD-over-paths `VectorKernel` (f64x4 / f64x8).

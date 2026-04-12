@@ -20,15 +20,16 @@ fn leaf_strategy() -> impl Strategy<Value = Expr> {
     ]
 }
 
-/// Only arithmetic + sqrt + pow, since VectorKernel does not yet support
-/// transcendentals.
 fn expr_strategy() -> impl Strategy<Value = Expr> {
     leaf_strategy().prop_recursive(4, 32, 4, |inner| {
         prop_oneof![
             (inner.clone(), inner.clone()).prop_map(|(a, b)| a + b),
             (inner.clone(), inner.clone()).prop_map(|(a, b)| a * b),
             (inner.clone(), -3i32..4).prop_map(|(a, n)| a.pow(n)),
-            inner.prop_map(|a| a.apply(Fun::Sqrt)),
+            inner.clone().prop_map(|a| a.apply(Fun::Sqrt)),
+            inner.clone().prop_map(|a| a.apply(Fun::Exp)),
+            inner.clone().prop_map(|a| a.apply(Fun::Sin)),
+            inner.prop_map(|a| a.apply(Fun::Cos)),
         ]
     })
 }

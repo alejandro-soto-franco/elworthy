@@ -14,8 +14,10 @@
 //! - `time` is shared across lanes (broadcast by the kernel).
 //! - `out[0]` and `out[1]` are the two per-lane scalar outputs.
 //!
-//! Unsupported: transcendental `Fun` variants other than `Sqrt`. They
-//! require per-lane scalarisation and are a follow-up.
+//! Transcendental `Fun` variants (`Exp`, `Log`, `Sin`, `Cos`) are
+//! evaluated per lane via libm: each lane is extracted, dispatched to
+//! the imported libm symbol, and the results reassembled into a F64X2.
+//! `Sqrt` stays on the native CLIF vector op.
 
 use crate::jit::{CodegenError, KernelShape, LengthError};
 use cranelift::prelude::*;
@@ -40,11 +42,9 @@ impl VectorKernel {
 
     /// JIT-compile `expr` into a two-lane SIMD kernel.
     ///
-    /// Rejects transcendental functions (`Exp`, `Log`, `Sin`, `Cos`) with
-    /// `CodegenError::UnsupportedVectorFun`; fall back to the scalar
-    /// kernel for those.
+    /// All `Fun` variants are supported; transcendentals are scalarised
+    /// per lane and dispatched to libm, matching the scalar kernel.
     pub fn compile(expr: &Expr, shape: KernelShape) -> Result<Self, CodegenError> {
-        check_supported(expr)?;
         validate_shape(expr, &shape)?;
 
         let mut flag_builder = settings::builder();
@@ -62,7 +62,8 @@ impl VectorKernel {
             .finish(flags)
             .map_err(|e| CodegenError::Isa(e.to_string()))?;
 
-        let jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+        let mut jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+        register_libm(&mut jit_builder);
         let mut module = JITModule::new(jit_builder);
 
         let ptr_ty = module.target_config().pointer_type();
@@ -76,6 +77,22 @@ impl VectorKernel {
 
         let kernel_id = module
             .declare_function("elworthy_vkernel", Linkage::Export, &sig)
+            .map_err(|e| CodegenError::Module(e.to_string()))?;
+
+        let mut libm_sig = module.make_signature();
+        libm_sig.params.push(AbiParam::new(types::F64));
+        libm_sig.returns.push(AbiParam::new(types::F64));
+        let f_exp = module
+            .declare_function("elworthy_exp", Linkage::Import, &libm_sig)
+            .map_err(|e| CodegenError::Module(e.to_string()))?;
+        let f_log = module
+            .declare_function("elworthy_log", Linkage::Import, &libm_sig)
+            .map_err(|e| CodegenError::Module(e.to_string()))?;
+        let f_sin = module
+            .declare_function("elworthy_sin", Linkage::Import, &libm_sig)
+            .map_err(|e| CodegenError::Module(e.to_string()))?;
+        let f_cos = module
+            .declare_function("elworthy_cos", Linkage::Import, &libm_sig)
             .map_err(|e| CodegenError::Module(e.to_string()))?;
 
         let mut ctx = module.make_context();
@@ -97,11 +114,20 @@ impl VectorKernel {
 
             let time_vec = builder.ins().splat(types::F64X2, time_scalar);
 
+            let exp_ref = module.declare_func_in_func(f_exp, builder.func);
+            let log_ref = module.declare_func_in_func(f_log, builder.func);
+            let sin_ref = module.declare_func_in_func(f_sin, builder.func);
+            let cos_ref = module.declare_func_in_func(f_cos, builder.func);
+
             let lctx = VecCtx {
                 state_ptr,
                 params_ptr,
                 time: time_vec,
                 dw_ptr,
+                exp_ref,
+                log_ref,
+                sin_ref,
+                cos_ref,
             };
 
             let result = lower_vec(&mut builder, expr, &lctx);
@@ -200,6 +226,10 @@ struct VecCtx {
     params_ptr: Value,
     time: Value,
     dw_ptr: Value,
+    exp_ref: codegen::ir::FuncRef,
+    log_ref: codegen::ir::FuncRef,
+    sin_ref: codegen::ir::FuncRef,
+    cos_ref: codegen::ir::FuncRef,
 }
 
 fn lower_vec(b: &mut FunctionBuilder, e: &Expr, ctx: &VecCtx) -> Value {
@@ -248,9 +278,23 @@ fn lower_vec(b: &mut FunctionBuilder, e: &Expr, ctx: &VecCtx) -> Value {
             let av = lower_vec(b, a, ctx);
             b.ins().sqrt(av)
         }
-        Expr::Fun(_, _) => {
-            // check_supported guarantees we never reach here.
-            unreachable!("transcendental in VectorKernel lowering")
+        Expr::Fun(f, a) => {
+            let av = lower_vec(b, a, ctx);
+            let func_ref = match f {
+                Fun::Exp => ctx.exp_ref,
+                Fun::Log => ctx.log_ref,
+                Fun::Sin => ctx.sin_ref,
+                Fun::Cos => ctx.cos_ref,
+                Fun::Sqrt => unreachable!(),
+            };
+            let lane0 = b.ins().extractlane(av, 0);
+            let lane1 = b.ins().extractlane(av, 1);
+            let c0 = b.ins().call(func_ref, &[lane0]);
+            let r0 = b.inst_results(c0)[0];
+            let c1 = b.ins().call(func_ref, &[lane1]);
+            let r1 = b.inst_results(c1)[0];
+            let packed = b.ins().splat(types::F64X2, r0);
+            b.ins().insertlane(packed, r1, 1)
         }
     }
 }
@@ -271,19 +315,6 @@ fn lower_pow_vec(b: &mut FunctionBuilder, base: Value, n: i32) -> Value {
         b.ins().fdiv(one_v, acc)
     } else {
         acc
-    }
-}
-
-fn check_supported(e: &Expr) -> Result<(), CodegenError> {
-    match e {
-        Expr::Const(_) | Expr::Var(_) => Ok(()),
-        Expr::Add(a, b) | Expr::Mul(a, b) => {
-            check_supported(a)?;
-            check_supported(b)
-        }
-        Expr::Pow(a, _) => check_supported(a),
-        Expr::Fun(Fun::Sqrt, a) => check_supported(a),
-        Expr::Fun(f, _) => Err(CodegenError::UnsupportedVectorFun(*f)),
     }
 }
 
@@ -330,6 +361,26 @@ fn validate_shape(expr: &Expr, shape: &KernelShape) -> Result<(), CodegenError> 
         }
         Expr::Pow(a, _) | Expr::Fun(_, a) => validate_shape(a, shape),
     }
+}
+
+extern "C" fn sym_exp(x: f64) -> f64 {
+    libm::exp(x)
+}
+extern "C" fn sym_log(x: f64) -> f64 {
+    libm::log(x)
+}
+extern "C" fn sym_sin(x: f64) -> f64 {
+    libm::sin(x)
+}
+extern "C" fn sym_cos(x: f64) -> f64 {
+    libm::cos(x)
+}
+
+fn register_libm(b: &mut JITBuilder) {
+    b.symbol("elworthy_exp", sym_exp as *const u8);
+    b.symbol("elworthy_log", sym_log as *const u8);
+    b.symbol("elworthy_sin", sym_sin as *const u8);
+    b.symbol("elworthy_cos", sym_cos as *const u8);
 }
 
 #[cfg(test)]
@@ -382,10 +433,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_exp() {
+    fn exp_per_lane_via_libm() {
         use elworthy_expr::Fun;
-        let e = Expr::state(0).apply(Fun::Exp);
-        let res = VectorKernel::compile(&e, shape(1, 0, 0));
-        assert!(matches!(res, Err(CodegenError::UnsupportedVectorFun(_))));
+        let k = VectorKernel::compile(&Expr::state(0).apply(Fun::Exp), shape(1, 0, 0)).unwrap();
+        let state = [0.0, 1.0];
+        let mut out = [0.0f64; 2];
+        k.call(&state, &[], 0.0, &[], &mut out);
+        assert!((out[0] - 1.0).abs() < 1e-12);
+        assert!((out[1] - std::f64::consts::E).abs() < 1e-12);
+    }
+
+    #[test]
+    fn sin_per_lane_via_libm() {
+        use elworthy_expr::Fun;
+        let k = VectorKernel::compile(&Expr::state(0).apply(Fun::Sin), shape(1, 0, 0)).unwrap();
+        let state = [0.0, std::f64::consts::FRAC_PI_2];
+        let mut out = [0.0f64; 2];
+        k.call(&state, &[], 0.0, &[], &mut out);
+        assert!(out[0].abs() < 1e-12);
+        assert!((out[1] - 1.0).abs() < 1e-12);
     }
 }

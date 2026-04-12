@@ -26,7 +26,7 @@ Cranelift lowering for elworthy expression trees, plus a reference scalar interp
 | `Mul`               | `fmul`                            |
 | `Pow(n)`            | unrolled multiplication, reciprocal for negative exponents |
 | `Fun::Sqrt`         | Cranelift `sqrt`                  |
-| `Fun::Exp/Log/Sin/Cos` | libm call via imported symbol  |
+| `Fun::Exp/Log/Sin/Cos` | libm call via imported symbol (scalar); per-lane extractlane + libm + insertlane (vector) |
 
 ## Correctness strategy
 
