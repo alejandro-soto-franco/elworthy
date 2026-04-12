@@ -19,6 +19,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - GitHub Actions CI: rustfmt, clippy (warnings as errors), tests, docs.
 - Dual-licence removed; Apache-2.0 only.
 
+### Added (post-scaffold)
+
+- `WeightIntegrand` and `synthesise_scalar_delta` in `elworthy-weight`: constant-tangent-flow Bismut-Elworthy-Li weight for scalar Delta.
+- `bind_initial_state` helper to substitute `X_0` into a sigma expression.
+- `euler_scalar_jit_delta_bel` in `elworthy-rt`: first end-to-end Malliavin Greek, returning `PriceAndDelta`.
+- `elworthy gbm-delta` CLI subcommand.
+- Tests: BEL delta on GBM matches analytic `exp(rT)` and bumped finite-difference delta.
+
 ### Planned
 
 - SIMD-over-paths `VectorKernel` (f64x4 / f64x8).

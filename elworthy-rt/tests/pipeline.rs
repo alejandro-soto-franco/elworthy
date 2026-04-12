@@ -4,7 +4,7 @@
 use elworthy_diff::diff;
 use elworthy_expr::{Expr, Var};
 use elworthy_rt::euler_scalar_interp as euler_scalar;
-use elworthy_weight::{synthesise_scalar, Greek};
+use elworthy_weight::{bind_initial_state, synthesise_scalar_delta};
 
 /// Differentiating x^2 with respect to x yields 2x (up to canonicalisation).
 #[test]
@@ -20,22 +20,22 @@ fn diff_then_eval_matches_hand_derivative() {
     assert!((eval(&df, &env) - 6.0).abs() < 1e-10);
 }
 
-/// Weight synthesis produces a finite coefficient on GBM diffusion.
+/// Weight synthesis produces a finite, positive coefficient on GBM.
 #[test]
 fn weight_synthesis_delta_gbm_is_finite() {
     use elworthy_codegen::eval;
     use std::collections::HashMap;
 
+    // sigma(X) = param1 * X  =>  sigma(X_0) evaluated at x0 = 100.
     let sigma = Expr::param(1) * Expr::state(0);
-    let mu = Expr::param(0) * Expr::state(0);
+    let sigma_at_x0 = bind_initial_state(&sigma, &[100.0]);
     let horizon = Expr::c(1.0);
-    let w = synthesise_scalar(&sigma, &mu, Greek::Delta { state_index: 0 }, horizon);
+    let w = synthesise_scalar_delta(sigma_at_x0, horizon);
 
     let mut env = HashMap::new();
     env.insert(Var::Param(1), 0.2);
-    env.insert(Var::State(0), 100.0);
     let coeff = eval(&w.coeff_dw, &env);
-    assert!(coeff.is_finite() && coeff > 0.0);
+    assert!(coeff.is_finite() && coeff > 0.0, "coeff_dw = {coeff}");
 }
 
 /// Euler-Maruyama on GBM recovers E[X_T] = x0 exp(r T) within statistical

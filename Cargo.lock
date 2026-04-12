@@ -378,6 +378,7 @@ dependencies = [
 name = "elworthy-weight"
 version = "0.1.0"
 dependencies = [
+ "elworthy-codegen",
  "elworthy-diff",
  "elworthy-expr",
 ]

@@ -10,3 +10,6 @@ description = "Bismut-Elworthy-Li weight synthesis for elworthy."
 [dependencies]
 elworthy-expr.workspace = true
 elworthy-diff.workspace = true
+
+[dev-dependencies]
+elworthy-codegen.workspace = true

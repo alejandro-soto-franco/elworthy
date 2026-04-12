@@ -10,10 +10,10 @@ description = "Runtime kernel cache, SIMD RNG, and dispatch for elworthy."
 [dependencies]
 elworthy-expr.workspace = true
 elworthy-codegen.workspace = true
+elworthy-weight.workspace = true
 rand.workspace = true
 rand_xoshiro.workspace = true
 rand_distr = "0.4"
 
 [dev-dependencies]
 elworthy-diff.workspace = true
-elworthy-weight.workspace = true
