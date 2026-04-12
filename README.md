@@ -29,6 +29,29 @@ elworthy/
 
 Each subcrate has its own README.
 
+## Performance
+
+On a development laptop (x86_64, single core, release profile):
+
+| Scenario | throughput (M path-steps/s) | speedup vs interpreter |
+|---|---:|---:|
+| GBM price, tree-walking interpreter | 6.8 | 1.0x |
+| GBM price, scalar Cranelift JIT | 150 | **22x** |
+| GBM price, 2-lane SIMD JIT | 187 | **27x** |
+| GBM price + Bismut-Elworthy-Li delta | 152 | 22x |
+| Heston price (2-D) | 55 | 8x |
+| Heston price + pathwise delta (2-D, full Jacobian) | 16 | 2.3x |
+
+Kernel cache hit: 64 nanoseconds per retrieval vs ~100 microseconds for a cold Cranelift compile, i.e. a 1500x speedup on calibration inner loops.
+
+Reproduce with:
+
+```bash
+cargo test --release -p elworthy-rt --test benchmark -- --nocapture --ignored
+```
+
+See [BENCHMARK.md](BENCHMARK.md) for full methodology, caveats, and reproducibility notes.
+
 ## Quick start
 
 ```bash
