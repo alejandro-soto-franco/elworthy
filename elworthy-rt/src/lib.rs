@@ -126,6 +126,105 @@ pub fn euler_scalar_jit(
     Ok(finalise(sum, sum_sq, n_paths))
 }
 
+/// GBM-specialised Malliavin parameter Greek driver.
+///
+/// Uses the likelihood-ratio Malliavin weight
+///
+/// ```text
+/// pi_r     = W_T / sigma
+/// pi_sigma = W_T^2 / (sigma * T) - W_T - 1/sigma
+/// ```
+///
+/// which satisfies `E[f(X_T) * pi_theta] = d/dtheta E[f(X_T)]` for *any*
+/// square-integrable payoff, including non-smooth ones (digitals,
+/// barriers). Derived and machine-checked in
+/// `derivations/gbm_malliavin_param.py` (SymPy, gitignored) against
+/// three independent test payoffs.
+///
+/// `param_index = 0` selects `r` (rho), `param_index = 1` selects
+/// `sigma` (vega). `params = [r, sigma]`.
+///
+/// A general-SDE parameter weight without reliance on a closed-form
+/// transition density is future work.
+#[allow(clippy::too_many_arguments)]
+pub fn gbm_malliavin_param_greek(
+    payoff: &Expr,
+    param_index: u32,
+    params: &[f64],
+    x0: f64,
+    horizon: f64,
+    n_steps: usize,
+    n_paths: usize,
+    seed: u64,
+) -> Result<PriceAndParamGreek, elworthy_codegen::CodegenError> {
+    assert_eq!(
+        params.len(),
+        2,
+        "GBM expects params = [r, sigma] (length 2, got {})",
+        params.len()
+    );
+    assert!(
+        param_index < 2,
+        "GBM param_index must be 0 (r) or 1 (sigma)"
+    );
+    let sigma = params[1];
+    assert!(sigma > 0.0, "sigma must be positive");
+
+    let shape = KernelShape {
+        n_state: 1,
+        n_params: params.len(),
+        n_dw: 0,
+    };
+    let mu_expr = Expr::param(0) * Expr::state(0);
+    let sig_expr = Expr::param(1) * Expr::state(0);
+    let mu_k = ScalarKernel::compile(&mu_expr, shape)?;
+    let sig_k = ScalarKernel::compile(&sig_expr, shape)?;
+    let pay_k = ScalarKernel::compile(payoff, shape)?;
+
+    let dt = horizon / n_steps as f64;
+    let sqrt_dt = dt.sqrt();
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+
+    let mut sum_price = 0.0;
+    let mut sum_price_sq = 0.0;
+    let mut sum_greek = 0.0;
+    let mut sum_greek_sq = 0.0;
+
+    let mut state = [0.0f64; 1];
+
+    for _ in 0..n_paths {
+        state[0] = x0;
+        let mut w_total = 0.0;
+        let mut t = 0.0;
+        for _ in 0..n_steps {
+            let z: f64 = StandardNormal.sample(&mut rng);
+            let dw = sqrt_dt * z;
+            w_total += dw;
+            let mu_v = mu_k.call(&state, params, t, &[]);
+            let sig_v = sig_k.call(&state, params, t, &[]);
+            state[0] += mu_v * dt + sig_v * dw;
+            t += dt;
+        }
+        let f = pay_k.call(&state, params, horizon, &[]);
+        let pi = match param_index {
+            0 => w_total / sigma,
+            1 => w_total * w_total / (sigma * horizon) - w_total - 1.0 / sigma,
+            _ => unreachable!(),
+        };
+        let greek_sample = f * pi;
+        sum_price += f;
+        sum_price_sq += f * f;
+        sum_greek += greek_sample;
+        sum_greek_sq += greek_sample * greek_sample;
+    }
+
+    Ok(PriceAndParamGreek {
+        price: finalise(sum_price, sum_price_sq, n_paths),
+        param_greek: finalise(sum_greek, sum_greek_sq, n_paths),
+        param_index,
+    })
+}
+
 /// Scalar Milstein-scheme driver, JIT backend.
 ///
 /// Adds the Milstein correction to the Euler-Maruyama step:
@@ -1117,6 +1216,53 @@ mod tests {
             est.mean,
             expected,
             est.stderr,
+        );
+    }
+
+    #[test]
+    fn malliavin_rho_gbm_linear_payoff_matches_analytic() {
+        // d/dr E[X_T] = x0 T exp(r T), via the likelihood-ratio Malliavin
+        // weight pi_r = W_T / sigma. SymPy derivation at
+        // derivations/gbm_malliavin_param.py.
+        let r = 0.05;
+        let sigma = 0.2;
+        let x0 = 100.0;
+        let t = 1.0;
+        let params = [r, sigma];
+        let payoff = Expr::state(0);
+        let out =
+            gbm_malliavin_param_greek(&payoff, 0, &params, x0, t, 256, 40_000, 424_242).unwrap();
+        let expected = x0 * t * (r * t).exp();
+        let tol = 4.0 * out.param_greek.stderr + 0.5;
+        assert!(
+            (out.param_greek.mean - expected).abs() < tol,
+            "Malliavin rho {} vs analytic {} (stderr {})",
+            out.param_greek.mean,
+            expected,
+            out.param_greek.stderr,
+        );
+    }
+
+    #[test]
+    fn malliavin_vega_gbm_square_payoff_matches_analytic() {
+        // d/dsigma E[X_T^2] = 2 sigma T x0^2 exp((2r + sigma^2) T).
+        let r = 0.05;
+        let sigma = 0.2;
+        let x0 = 100.0;
+        let t = 1.0;
+        let params = [r, sigma];
+        let payoff = Expr::state(0).pow(2);
+        let out =
+            gbm_malliavin_param_greek(&payoff, 1, &params, x0, t, 256, 80_000, 999_999).unwrap();
+        let expected = x0 * x0 * 2.0 * sigma * t * ((2.0 * r + sigma * sigma) * t).exp();
+        // Higher variance under vega weight than pathwise; loose tolerance.
+        let tol = 4.0 * out.param_greek.stderr + 100.0;
+        assert!(
+            (out.param_greek.mean - expected).abs() < tol,
+            "Malliavin vega {} vs analytic {} (stderr {})",
+            out.param_greek.mean,
+            expected,
+            out.param_greek.stderr,
         );
     }
 

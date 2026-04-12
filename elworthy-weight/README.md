@@ -21,7 +21,8 @@ At the terminal time the unbiased Greek estimator is `E[f(X_T) * pi]`.
 | Gamma (scalar SDE)     | Planned    |
 | Vega (scalar SDE)      | Planned    |
 | Parameter (smooth payoff) | Implemented in `elworthy-rt::euler_scalar_jit_param_greek` via pathwise (tangent flow w.r.t. `theta_i`) |
-| Parameter (non-smooth payoff, BEL weight) | Planned |
+| Parameter (non-smooth payoff, GBM) | Implemented in `elworthy-rt::gbm_malliavin_param_greek`. Likelihood-ratio weights `pi_r = W_T/sigma`, `pi_sigma = W_T^2/(sigma T) - W_T - 1/sigma`. SymPy-verified in `derivations/gbm_malliavin_param.py`. |
+| Parameter (non-smooth payoff, general SDE) | Planned (tangent-flow Malliavin weight without closed-form transition density) |
 | Multi-dimensional      | Planned    |
 
 ## Theoretical basis

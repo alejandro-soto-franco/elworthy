@@ -68,6 +68,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `elworthy-codegen::DiskCache`: disk-persisted AST cache (not machine code) at `$ELWORTHY_CACHE_DIR` / `$XDG_CACHE_HOME/elworthy/` / `~/.cache/elworthy/`, with format-version stamp for stale-file detection. Atomic writes via rename. Cache directory is a runtime artefact, never tracked by git.
 - `elworthy-codegen::cpu::has_avx2`, `preferred_f64_lanes`: runtime CPU detection. Scaffolds the feature-gated `simd_avx2` path for a future F64X4 `VectorKernel4`.
 
+### Added (Malliavin parameter Greeks, SymPy-verified)
+
+- `elworthy-rt::gbm_malliavin_param_greek`: likelihood-ratio Malliavin weight for GBM parameter Greeks. `pi_r = W_T / sigma`, `pi_sigma = W_T^2/(sigma T) - W_T - 1/sigma`. Satisfies `E[f(X_T) * pi_theta] = d/dtheta E[f(X_T)]` for *any* square-integrable payoff, enabling unbiased Greeks on non-smooth payoffs (digitals, barriers) where pathwise fails.
+- Derivation machine-checked in `derivations/gbm_malliavin_param.py` (gitignored). SymPy derives both weights from the log-normal transition density and verifies the integration-by-parts identity symbolically against three independent test payoffs (`x`, `x^2`, `log(x)`); all six residuals are exactly zero.
+- Rust tests validate rho on linear payoff and vega on `X_T^2` against their analytic closed forms.
+
 ### Planned
 
 - SIMD-over-paths `VectorKernel` (f64x4 / f64x8).
