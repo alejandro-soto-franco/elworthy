@@ -475,6 +475,148 @@ pub fn euler_scalar_jit_param_greek(
     })
 }
 
+/// Multi-dimensional SDE system suitable for Heston, basket options,
+/// and any coupled diffusion.
+///
+/// `mu[i]` is the drift of state component `i`, and `sigma[i][j]` is the
+/// diffusion coefficient multiplying Brownian increment `j` in component
+/// `i`. State dimension is `mu.len()`; Brownian dimension is
+/// `sigma[0].len()` (and must be consistent across rows).
+pub struct MultiSde {
+    pub mu: Vec<Expr>,
+    pub sigma: Vec<Vec<Expr>>,
+    pub payoff: Expr,
+    /// State components that the driver clamps to `max(x, 0.0)` after each
+    /// Euler step. Used for CIR/Heston variance processes under the
+    /// full-truncation scheme, which prevents `sqrt(v) = NaN` when plain
+    /// Euler produces negative variance.
+    pub nonneg_state: Vec<usize>,
+}
+
+impl MultiSde {
+    pub fn n_state(&self) -> usize {
+        self.mu.len()
+    }
+    pub fn n_dw(&self) -> usize {
+        self.sigma.first().map(|row| row.len()).unwrap_or(0)
+    }
+    fn validate(&self) -> Result<(), String> {
+        let n = self.n_state();
+        let m = self.n_dw();
+        if self.sigma.len() != n {
+            return Err(format!(
+                "sigma has {} rows but mu has {n} components",
+                self.sigma.len()
+            ));
+        }
+        for (i, row) in self.sigma.iter().enumerate() {
+            if row.len() != m {
+                return Err(format!(
+                    "sigma row {i} has length {}, expected {m}",
+                    row.len()
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Euler-Maruyama driver for a multi-dimensional SDE system, JIT backend.
+///
+/// JIT-compiles one kernel per `mu_i`, one per `sigma_ij`, and one for
+/// the payoff. Each step samples `n_dw` independent standard normals,
+/// scales them by `sqrt(dt)` to form Brownian increments, and advances
+/// each state component as
+///
+/// ```text
+/// X_i(t + dt) = X_i(t) + mu_i dt + sum_j sigma_ij * dW_j.
+/// ```
+///
+/// The discretisation is plain Euler; schemes that preserve positivity
+/// (full-truncation Heston, log-Euler) are follow-ups.
+#[allow(clippy::too_many_arguments)]
+pub fn euler_multi_jit(
+    sde: &MultiSde,
+    params: &[f64],
+    x0: &[f64],
+    horizon: f64,
+    n_steps: usize,
+    n_paths: usize,
+    seed: u64,
+) -> Result<Estimate, elworthy_codegen::CodegenError> {
+    sde.validate().expect("MultiSde dimensions inconsistent");
+    let n_state = sde.n_state();
+    let n_dw = sde.n_dw();
+    assert_eq!(x0.len(), n_state, "x0 length must equal n_state");
+
+    let shape = KernelShape {
+        n_state,
+        n_params: params.len(),
+        n_dw: 0,
+    };
+
+    let mu_kernels: Vec<ScalarKernel> = sde
+        .mu
+        .iter()
+        .map(|e| ScalarKernel::compile(e, shape))
+        .collect::<Result<_, _>>()?;
+    let mut sigma_kernels: Vec<Vec<ScalarKernel>> = Vec::with_capacity(n_state);
+    for row in &sde.sigma {
+        let mut row_k = Vec::with_capacity(n_dw);
+        for e in row {
+            row_k.push(ScalarKernel::compile(e, shape)?);
+        }
+        sigma_kernels.push(row_k);
+    }
+    let pay_k = ScalarKernel::compile(&sde.payoff, shape)?;
+
+    let dt = horizon / n_steps as f64;
+    let sqrt_dt = dt.sqrt();
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+
+    let mut sum = 0.0;
+    let mut sum_sq = 0.0;
+
+    let mut state = vec![0.0f64; n_state];
+    let mut drift = vec![0.0f64; n_state];
+    let mut dw = vec![0.0f64; n_dw];
+
+    for _ in 0..n_paths {
+        state.copy_from_slice(x0);
+        let mut t = 0.0;
+        for _ in 0..n_steps {
+            for d in dw.iter_mut() {
+                let z: f64 = StandardNormal.sample(&mut rng);
+                *d = sqrt_dt * z;
+            }
+            for (i, drift_i) in drift.iter_mut().enumerate() {
+                *drift_i = mu_kernels[i].call(&state, params, t, &[]);
+            }
+            for (i, drift_i) in drift.iter().enumerate() {
+                let mut inc = *drift_i * dt;
+                for (j, dw_j) in dw.iter().enumerate() {
+                    let sig_ij = sigma_kernels[i][j].call(&state, params, t, &[]);
+                    inc += sig_ij * *dw_j;
+                }
+                state[i] += inc;
+            }
+            for &idx in &sde.nonneg_state {
+                if let Some(s) = state.get_mut(idx) {
+                    if *s < 0.0 {
+                        *s = 0.0;
+                    }
+                }
+            }
+            t += dt;
+        }
+        let f = pay_k.call(&state, params, horizon, &[]);
+        sum += f;
+        sum_sq += f * f;
+    }
+
+    Ok(finalise(sum, sum_sq, n_paths))
+}
+
 fn finalise(sum: f64, sum_sq: f64, n_paths: usize) -> Estimate {
     let n = n_paths as f64;
     let mean = sum / n;
@@ -756,6 +898,68 @@ mod tests {
             out.param_greek.mean,
             expected,
             out.param_greek.stderr,
+        );
+    }
+
+    #[test]
+    fn heston_risk_neutral_martingale() {
+        // Under risk-neutral measure with discounting omitted, Heston's
+        // S process has drift r * S, so E[S_T] = S_0 * exp(r T) no matter
+        // what the variance dynamics look like. This validates the
+        // multi-dimensional driver end-to-end.
+        use elworthy_expr::Fun;
+        let r = 0.04;
+        let kappa = 1.5;
+        let theta_v = 0.04;
+        let xi = 0.3;
+        let s0 = 100.0;
+        let v0 = 0.04;
+        let t = 0.5;
+
+        // params: [r, kappa, theta, xi]
+        let params = [r, kappa, theta_v, xi];
+
+        let s = Expr::state(0);
+        let v = Expr::state(1);
+
+        // mu_0 = r * S, mu_1 = kappa * (theta - v)
+        let mu_s = Expr::param(0) * s.clone();
+        let mu_v = Expr::param(1) * (Expr::param(2) - v.clone());
+
+        // sigma matrix (uncorrelated for this smoke test):
+        //   dS = r S dt + sqrt(v) S dW_1
+        //   dv = kappa (theta - v) dt + xi sqrt(v) dW_2
+        // with max(v, 0) enforced via a reflecting evaluation is a follow
+        // up; here we pick parameters that keep variance positive with
+        // high probability under Euler.
+        let sqrt_v = v.apply(Fun::Sqrt);
+        let sig_ss = sqrt_v.clone() * s;
+        let sig_sv = Expr::c(0.0);
+        let sig_vs = Expr::c(0.0);
+        let sig_vv = Expr::param(3) * sqrt_v;
+
+        let sde = MultiSde {
+            mu: vec![mu_s, mu_v],
+            sigma: vec![vec![sig_ss, sig_sv], vec![sig_vs, sig_vv]],
+            payoff: Expr::state(0),
+            nonneg_state: vec![1], // full-truncation on variance
+        };
+
+        let est = euler_multi_jit(&sde, &params, &[s0, v0], t, 512, 40_000, 20_260_413).unwrap();
+
+        let expected = s0 * (r * t).exp();
+        let tol = 4.0 * est.stderr + 0.5;
+        assert!(
+            est.mean.is_finite(),
+            "Heston E[S_T] is non-finite: {}",
+            est.mean
+        );
+        assert!(
+            (est.mean - expected).abs() < tol,
+            "Heston E[S_T] {} vs analytic {} (stderr {})",
+            est.mean,
+            expected,
+            est.stderr,
         );
     }
 

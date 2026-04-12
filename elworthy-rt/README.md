@@ -12,9 +12,11 @@ Monte Carlo runtime for elworthy: SDE integration scheme, RNG, and kernel dispat
 
 | Scheme           | Status     |
 |------------------|------------|
-| Euler-Maruyama   | Implemented |
-| Milstein         | Planned    |
-| Heun (predictor-corrector) | Planned |
+| Euler-Maruyama (scalar SDE)           | Implemented |
+| Euler-Maruyama (multi-dim SDE system) | Implemented (`MultiSde`, `euler_multi_jit`) |
+| Full-truncation clamp for variance-type components | Implemented |
+| Milstein                              | Planned    |
+| Heun (predictor-corrector)            | Planned    |
 
 Higher-order schemes matter for unbiasedness of Malliavin weights on payoffs that depend non-smoothly on the terminal state.
 

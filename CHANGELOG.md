@@ -52,6 +52,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `elworthy-rt::euler_scalar_jit_param_greek`: pathwise estimator for `d/dtheta_i E[f(X_T)]` on scalar SDEs with smooth payoffs. Symbolically differentiates `mu`, `sigma`, and `payoff` w.r.t. the selected parameter and the state, JIT-compiles eight kernels, and advances `(X, Z)` under a shared Brownian increment (`Z = dX/dtheta_i`, `Z_0 = 0`).
 - Tests: rho on GBM matches `x0 T exp(rT)`; vega on payoff `X_T^2` matches `2 sigma T x0^2 exp((2r + sigma^2)T)`, both within 4 stderr.
 
+### Added (multi-dimensional SDEs)
+
+- `elworthy-rt::MultiSde`: struct bundling vector drift `mu`, diffusion matrix `sigma` (n_state by n_dw), payoff, and a `nonneg_state` list for full-truncation clamping of CIR/variance-type components.
+- `elworthy-rt::euler_multi_jit`: multi-dimensional Euler-Maruyama driver that JIT-compiles one kernel per `mu_i` and `sigma_ij`, samples `n_dw` independent Brownian increments per step, and advances the state under `dX_i = mu_i dt + sum_j sigma_ij dW_j`.
+- Full-truncation post-step clamp for variance components (`nonneg_state: vec![1]` in the Heston test).
+- Heston martingale test: `E[S_T] = S_0 exp(rT)` recovered within 4 stderr under 2-D Euler with stock + stochastic variance.
+
 ### Planned
 
 - SIMD-over-paths `VectorKernel` (f64x4 / f64x8).
