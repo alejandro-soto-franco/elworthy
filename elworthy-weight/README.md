@@ -1,5 +1,8 @@
 # elworthy-weight
 
+[![crates.io](https://img.shields.io/crates/v/elworthy-weight.svg)](https://crates.io/crates/elworthy-weight)
+[![docs.rs](https://docs.rs/elworthy-weight/badge.svg)](https://docs.rs/elworthy-weight)
+
 Bismut-Elworthy-Li weight synthesis for elworthy.
 
 ## What it provides

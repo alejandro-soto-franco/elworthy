@@ -1,5 +1,9 @@
 # elworthy
 
+[![crates.io](https://img.shields.io/crates/v/elworthy.svg)](https://crates.io/crates/elworthy)
+[![docs.rs](https://docs.rs/elworthy/badge.svg)](https://docs.rs/elworthy)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 A Rust JIT compiler that specialises Bismut-Elworthy-Li formulas into SIMD kernels for unbiased Monte Carlo Greeks on non-stationary SDEs.
 
 Named after K. David Elworthy, co-author of the Bismut-Elworthy-Li integration-by-parts formula:
@@ -13,7 +17,18 @@ $$
 
 ## Status
 
-v0.1. Full scalar Cranelift JIT with transcendentals via libm, 2-lane SIMD `VectorKernel` supporting the entire `Fun` set per lane, kernel cache (in-memory and disk-persisted AST), multi-dimensional SDE driver with full-truncation clamping, Milstein scheme, and first-class Greek drivers: constant-flow BEL delta (GBM/ABM), general tangent-flow BEL delta (any scalar SDE), pathwise parameter Greek (rho/vega on smooth payoffs), and pathwise delta on multi-dim Heston. Runtime AVX2 detection scaffolded for a forthcoming F64X4 backend.
+v0.1. Ships:
+
+- Full scalar Cranelift JIT with `exp`, `log`, `sin`, `cos`, `sqrt` via libm.
+- 2-lane SIMD `VectorKernel` (Cranelift F64X2) covering every `Fun` variant per lane; F64X4 scaffolded behind the `simd_avx2` feature flag with runtime CPU detection.
+- In-memory structural-hash kernel cache + disk-persisted AST cache at `$XDG_CACHE_HOME/elworthy/`.
+- Euler-Maruyama and Milstein discretisations for scalar SDEs; multi-dimensional Euler driver with full-truncation clamping for CIR/variance-type components.
+- Greek drivers:
+  - Delta, constant-flow Bismut-Elworthy-Li (GBM / ABM).
+  - Delta, general tangent-flow Bismut-Elworthy-Li (any scalar SDE).
+  - Delta, multi-dim pathwise tangent flow (Heston and friends).
+  - Rho, vega, and arbitrary parameter Greeks, pathwise (smooth payoffs, any scalar SDE).
+  - Rho and vega for GBM via the likelihood-ratio Malliavin weight, valid for non-smooth payoffs (digitals, barriers); derivation machine-checked with SymPy.
 
 ## Architecture
 
@@ -24,7 +39,7 @@ elworthy/
 ├── elworthy-weight/    Bismut-Elworthy-Li weight synthesis
 ├── elworthy-codegen/   Expr -> Cranelift IR lowering + scalar interpreter
 ├── elworthy-rt/        kernel cache, SIMD RNG, Monte Carlo driver
-└── elworthy/           CLI + examples (Heston delta, etc.)
+└── elworthy/           CLI + examples
 ```
 
 Each subcrate has its own README.
@@ -42,7 +57,7 @@ On a development laptop (x86_64, single core, release profile):
 | Heston price (2-D) | 55 | 8x |
 | Heston price + pathwise delta (2-D, full Jacobian) | 16 | 2.3x |
 
-Kernel cache hit: 64 nanoseconds per retrieval vs ~100 microseconds for a cold Cranelift compile, i.e. a 1500x speedup on calibration inner loops.
+Kernel cache hit: 64 ns per retrieval vs ~100 us for a cold Cranelift compile, a 1500x speedup on calibration inner loops.
 
 Reproduce with:
 
@@ -52,25 +67,35 @@ cargo test --release -p elworthy-rt --test benchmark -- --nocapture --ignored
 
 See [BENCHMARK.md](BENCHMARK.md) for full methodology, caveats, and reproducibility notes.
 
-## Quick start
+## Install
 
 ```bash
-cargo test --workspace
-cargo run --release -- gbm --backend jit --paths 10000
-cargo run --release -- gbm --backend interp --paths 10000
+cargo add elworthy-rt elworthy-expr
 ```
 
-Expected output:
+Or the CLI:
+
+```bash
+cargo install elworthy
+```
+
+## Quick start (CLI)
+
+```bash
+elworthy gbm       --backend jit --paths 10000
+elworthy gbm-delta --paths 40000
+```
+
+Expected output for `gbm-delta` at default parameters:
 
 ```
-[jit] E[X_T] ~ 105.12xx (stderr ...) | closed form 105.1271
+price   ~ 105.12xx (stderr 0.14xx) | closed form 105.1271
+delta   ~   1.05xx (stderr 0.02xx) | closed form 1.0513   [Bismut-Elworthy-Li]
 ```
 
 ### SELinux note (Fedora / RHEL)
 
-The JIT backend requires `execmem` permission so Cranelift can map newly
-generated code as executable. Under SELinux `enforcing` this is denied by
-default for user binaries and you will see
+The JIT backend requires `execmem` permission so Cranelift can map newly generated code as executable. Under SELinux `enforcing` this is denied by default for user binaries and you will see
 
 ```
 Error: cranelift module error: Backend error: unable to make memory readable+executable
@@ -79,21 +104,17 @@ Error: cranelift module error: Backend error: unable to make memory readable+exe
 Workarounds:
 
 - Run via `cargo test` (the test harness domain already grants `execmem`).
-- Temporarily relax policy with
-  `sudo setsebool -P selinuxuser_execheap 1`.
+- Temporarily relax policy with `sudo setsebool -P selinuxuser_execheap 1`.
 - Use `--backend interp` for a JIT-free run.
 
 Ubuntu, Debian, macOS, and most CI runners do not hit this restriction.
 
-## First milestone
+## Next milestones
 
-Heston model, delta via Bismut-Elworthy-Li, Euler-Maruyama scheme, SIMD paths, Cranelift backend. Benchmarked against:
-
-- bumped finite-difference Rust
-- QuantLib reference
-- hand-written SIMD kernel without JIT
-
-Target: within 10% of the hand-written SIMD kernel, matching QuantLib delta to 4 decimal places.
+- `VectorKernel4` (AVX2 F64X4) behind the `simd_avx2` feature.
+- General-SDE Malliavin parameter weight (without relying on a closed-form transition density).
+- Gamma via second-order Bismut-Elworthy-Li.
+- QuantLib reference benchmarks for Heston delta.
 
 ## Licence
 

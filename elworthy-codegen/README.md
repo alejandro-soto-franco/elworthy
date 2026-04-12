@@ -1,5 +1,8 @@
 # elworthy-codegen
 
+[![crates.io](https://img.shields.io/crates/v/elworthy-codegen.svg)](https://crates.io/crates/elworthy-codegen)
+[![docs.rs](https://docs.rs/elworthy-codegen/badge.svg)](https://docs.rs/elworthy-codegen)
+
 Cranelift lowering for elworthy expression trees, plus a reference scalar interpreter.
 
 ## What it provides

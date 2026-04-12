@@ -1,5 +1,8 @@
 # elworthy-rt
 
+[![crates.io](https://img.shields.io/crates/v/elworthy-rt.svg)](https://crates.io/crates/elworthy-rt)
+[![docs.rs](https://docs.rs/elworthy-rt/badge.svg)](https://docs.rs/elworthy-rt)
+
 Monte Carlo runtime for elworthy: SDE integration scheme, RNG, and kernel dispatch.
 
 ## What it provides

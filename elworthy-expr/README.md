@@ -1,5 +1,8 @@
 # elworthy-expr
 
+[![crates.io](https://img.shields.io/crates/v/elworthy-expr.svg)](https://crates.io/crates/elworthy-expr)
+[![docs.rs](https://docs.rs/elworthy-expr/badge.svg)](https://docs.rs/elworthy-expr)
+
 Symbolic expression AST for elworthy.
 
 ## What it provides

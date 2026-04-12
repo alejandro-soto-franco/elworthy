@@ -1,5 +1,8 @@
 # elworthy-diff
 
+[![crates.io](https://img.shields.io/crates/v/elworthy-diff.svg)](https://crates.io/crates/elworthy-diff)
+[![docs.rs](https://docs.rs/elworthy-diff/badge.svg)](https://docs.rs/elworthy-diff)
+
 Symbolic differentiation over `elworthy_expr::Expr`.
 
 ## What it provides

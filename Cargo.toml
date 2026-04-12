@@ -18,12 +18,12 @@ repository = "https://github.com/alejandro-soto-franco/elworthy"
 rust-version = "1.75"
 
 [workspace.dependencies]
-# Intra-workspace
-elworthy-expr    = { path = "elworthy-expr" }
-elworthy-diff    = { path = "elworthy-diff" }
-elworthy-weight  = { path = "elworthy-weight" }
-elworthy-codegen = { path = "elworthy-codegen" }
-elworthy-rt      = { path = "elworthy-rt" }
+# Intra-workspace (version + path so crates.io publish works while local builds still use the workspace path)
+elworthy-expr    = { path = "elworthy-expr",    version = "0.1.0" }
+elworthy-diff    = { path = "elworthy-diff",    version = "0.1.0" }
+elworthy-weight  = { path = "elworthy-weight",  version = "0.1.0" }
+elworthy-codegen = { path = "elworthy-codegen", version = "0.1.0" }
+elworthy-rt      = { path = "elworthy-rt",      version = "0.1.0" }
 
 # JIT backend
 cranelift         = "0.110"

@@ -1,5 +1,8 @@
 # elworthy (CLI)
 
+[![crates.io](https://img.shields.io/crates/v/elworthy.svg)](https://crates.io/crates/elworthy)
+[![docs.rs](https://docs.rs/elworthy/badge.svg)](https://docs.rs/elworthy)
+
 Command-line entry point for the elworthy Monte Carlo toolchain.
 
 ## Install
