@@ -22,6 +22,19 @@ Higher-order schemes matter for unbiasedness of Malliavin weights on payoffs tha
 
 The current driver is scalar. The next revision lanes `n_paths` across `f64x4` or `f64x8` per CPU SIMD width and calls a `VectorKernel` from `elworthy-codegen` once per timestep per batch.
 
+## Benchmarks
+
+Criterion benches live in `benches/scalar_jit_vs_interp.rs`:
+
+```bash
+cargo bench -p elworthy-rt
+```
+
+Compares the scalar JIT against the tree-walking interpreter on GBM price,
+a Heston-flavoured price, and the BEL delta driver. Under SELinux
+`enforcing` the JIT benches may fail with `unable to make memory
+readable+executable`; see the root README for workarounds.
+
 ## Reproducibility
 
 The PRNG algorithm (xoshiro256++) and seed-splitting strategy are frozen independently of the JIT backend so that a given `(seed, n_paths, n_steps)` yields byte-identical Brownian paths across compiler versions.

@@ -12,8 +12,12 @@
 //! construct the JIT claims to support matches the interpreter within
 //! floating-point rounding.
 
+pub mod cache;
+pub mod hash;
 pub mod interp;
 pub mod jit;
 
+pub use cache::KernelCache;
+pub use hash::expr_hash;
 pub use interp::eval;
 pub use jit::{CodegenError, KernelShape, LengthError, ScalarKernel};
