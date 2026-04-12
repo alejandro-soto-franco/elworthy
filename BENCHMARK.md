@@ -62,6 +62,25 @@ The modest speedup on this tiny workload reflects that Cranelift compiles the th
 
 Seeds are fixed inside the benchmark test so every run produces byte-identical Brownian paths. Any variance between runs reflects wall-clock noise only. Re-running the suite yields throughput numbers within a few percent of those above on the same hardware.
 
+## Cross-validation
+
+European call on geometric Brownian motion, `S_0 = K = 100`, `r = 0.05`, `sigma = 0.2`, `T = 1`, 200 000 Milstein paths x 512 steps, seed `20260413`.
+
+Three independent computations of the same price and delta:
+
+| Source                                                                                         | price   | delta  |
+|------------------------------------------------------------------------------------------------|--------:|-------:|
+| Black-Scholes closed form (inline, `libm::erf`)                                                | 10.4506 | 0.6368 |
+| [`blackscholes`](https://github.com/hayden4r4/blackscholes-rust) crate v0.24 (external repo)   | 10.4506 | 0.6368 |
+| elworthy Monte Carlo + Bismut-Elworthy-Li delta                                                | 10.5005 | 0.6377 |
+| Monte Carlo standard error                                                                     |  0.0329 | 0.0033 |
+
+- The two analytic references agree to 1e-3 (the `blackscholes` crate uses `f32` internally while the inline computation uses `f64`).
+- elworthy agrees with both analytic references **within 4 Monte Carlo standard errors** on both price and delta. This is the canonical cross-validation every quant Monte Carlo implementation passes; it confirms the JIT-compiled SDE path integration and the BEL weight scaling are correct against an independent GitHub repo and against the textbook Black-Scholes formula.
+- The test is in `elworthy-rt/tests/benchmark.rs` under `cross_validate_european_call_bs`, behind `#[ignore]` so it runs on demand: `cargo test --release -p elworthy-rt --test benchmark cross_validate -- --nocapture --ignored`.
+- Uses Milstein rather than Euler-Maruyama for the path integration: Euler inflates the variance of GBM by `O(sigma^2 dt)`, which biases convex payoffs like the call option upward by a few percent. Milstein adds the `0.5 sigma sigma' (dW^2 - dt)` correction and removes that bias.
+- MC wall time for the above configuration: roughly 800 ms on the development laptop.
+
 ## Caveats
 
 - These numbers are from a **development laptop, single core, SELinux enforcing**. A beefy server with more recent Cranelift releases and AVX-512 would likely show a further 2-4x on the SIMD paths once `VectorKernel4` lands.

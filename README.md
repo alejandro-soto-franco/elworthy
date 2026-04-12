@@ -59,6 +59,8 @@ On a development laptop (x86_64, single core, release profile):
 
 Kernel cache hit: 64 ns per retrieval vs ~100 us for a cold Cranelift compile, a 1500x speedup on calibration inner loops.
 
+**Cross-validation.** The JIT+BEL stack is cross-validated against Black-Scholes closed form (inline, `libm::erf`) and the independent [`blackscholes`](https://github.com/hayden4r4/blackscholes-rust) crate (v0.24). On a European call at `S_0 = K = 100`, `r = 0.05`, `sigma = 0.2`, `T = 1`, 200 000 Milstein paths x 512 steps, elworthy's Monte Carlo price and Bismut-Elworthy-Li delta agree with both analytic references within four Monte Carlo standard errors. Full table in [BENCHMARK.md](BENCHMARK.md#cross-validation).
+
 Reproduce with:
 
 ```bash

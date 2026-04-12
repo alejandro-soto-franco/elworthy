@@ -15,9 +15,13 @@ elworthy-diff.workspace = true
 rand.workspace = true
 rand_xoshiro.workspace = true
 rand_distr = "0.4"
+libm.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false }
+# Independent Black-Scholes implementation used by the cross-validation
+# test in `tests/benchmark.rs`. Repo: https://github.com/hayden4r4/blackscholes-rust
+blackscholes = "0.24"
 
 [[bench]]
 name = "scalar_jit_vs_interp"
