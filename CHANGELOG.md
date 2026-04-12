@@ -47,6 +47,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `elworthy-rt::euler_scalar_jit_delta_tangent`: general tangent-flow Bismut-Elworthy-Li delta driver for arbitrary scalar SDEs. Symbolically differentiates `mu` and `sigma` with respect to the state, JIT-compiles five kernels (`mu`, `sigma`, `mu'`, `sigma'`, `payoff`), and advances `(X, Y, pi)` under a shared Brownian increment per step.
 - Tests: reduces to analytic `exp(rT)` on GBM, and matches central finite-difference delta on an SDE with square-root diffusion where the constant-flow approximation would mis-specify the weight.
 
+### Added (parameter Greeks)
+
+- `elworthy-rt::euler_scalar_jit_param_greek`: pathwise estimator for `d/dtheta_i E[f(X_T)]` on scalar SDEs with smooth payoffs. Symbolically differentiates `mu`, `sigma`, and `payoff` w.r.t. the selected parameter and the state, JIT-compiles eight kernels, and advances `(X, Z)` under a shared Brownian increment (`Z = dX/dtheta_i`, `Z_0 = 0`).
+- Tests: rho on GBM matches `x0 T exp(rT)`; vega on payoff `X_T^2` matches `2 sigma T x0^2 exp((2r + sigma^2)T)`, both within 4 stderr.
+
 ### Planned
 
 - SIMD-over-paths `VectorKernel` (f64x4 / f64x8).

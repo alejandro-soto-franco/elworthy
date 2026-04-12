@@ -360,6 +360,121 @@ pub fn euler_scalar_jit_delta_tangent(
     })
 }
 
+/// Price and a pathwise parameter Greek estimate for a scalar SDE with a
+/// differentiable payoff.
+#[derive(Debug, Clone, Copy)]
+pub struct PriceAndParamGreek {
+    pub price: Estimate,
+    pub param_greek: Estimate,
+    pub param_index: u32,
+}
+
+/// Pathwise parameter Greek: `d/dtheta_i E[f(X_T)]` via tangent-flow
+/// simulation.
+///
+/// Requires `f` (the payoff) to be `C^1` in the terminal state so that
+///
+/// ```text
+/// d/dtheta_i E[f(X_T)] = E[f'(X_T) * Z_T],    Z_t := dX_t/dtheta_i,
+/// ```
+///
+/// with `Z` the tangent flow satisfying
+///
+/// ```text
+/// dZ = (mu'_x(X) * Z + mu'_theta(X)) dt
+///    + (sigma'_x(X) * Z + sigma'_theta(X)) dW,   Z_0 = 0.
+/// ```
+///
+/// The driver symbolically differentiates `mu`, `sigma`, and `payoff`,
+/// JIT-compiles six scalar kernels, and advances `(X, Z)` under a shared
+/// Brownian increment per step.
+///
+/// For non-smooth payoffs (barriers, digitals) use a Malliavin weight
+/// approach instead; this pathwise estimator would be biased.
+#[allow(clippy::too_many_arguments)]
+pub fn euler_scalar_jit_param_greek(
+    mu: &Expr,
+    sigma: &Expr,
+    payoff: &Expr,
+    param_index: u32,
+    params: &[f64],
+    x0: f64,
+    horizon: f64,
+    n_steps: usize,
+    n_paths: usize,
+    seed: u64,
+) -> Result<PriceAndParamGreek, elworthy_codegen::CodegenError> {
+    let state_var = Var::State(0);
+    let theta_var = Var::Param(param_index);
+
+    let dmu_dx = simplify(&diff(mu, &state_var));
+    let dsig_dx = simplify(&diff(sigma, &state_var));
+    let dmu_dth = simplify(&diff(mu, &theta_var));
+    let dsig_dth = simplify(&diff(sigma, &theta_var));
+    let dpay_dx = simplify(&diff(payoff, &state_var));
+
+    let shape = KernelShape {
+        n_state: 1,
+        n_params: params.len(),
+        n_dw: 0,
+    };
+    let mu_k = ScalarKernel::compile(mu, shape)?;
+    let sig_k = ScalarKernel::compile(sigma, shape)?;
+    let dmu_dx_k = ScalarKernel::compile(&dmu_dx, shape)?;
+    let dsig_dx_k = ScalarKernel::compile(&dsig_dx, shape)?;
+    let dmu_dth_k = ScalarKernel::compile(&dmu_dth, shape)?;
+    let dsig_dth_k = ScalarKernel::compile(&dsig_dth, shape)?;
+    let pay_k = ScalarKernel::compile(payoff, shape)?;
+    let dpay_dx_k = ScalarKernel::compile(&dpay_dx, shape)?;
+
+    let dt = horizon / n_steps as f64;
+    let sqrt_dt = dt.sqrt();
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+
+    let mut sum_price = 0.0;
+    let mut sum_price_sq = 0.0;
+    let mut sum_greek = 0.0;
+    let mut sum_greek_sq = 0.0;
+
+    let mut state = [0.0f64; 1];
+
+    for _ in 0..n_paths {
+        state[0] = x0;
+        let mut z = 0.0_f64;
+        let mut t = 0.0;
+        for _ in 0..n_steps {
+            let zr: f64 = StandardNormal.sample(&mut rng);
+            let dw = sqrt_dt * zr;
+            let mu_v = mu_k.call(&state, params, t, &[]);
+            let sig_v = sig_k.call(&state, params, t, &[]);
+            let dmu_dx_v = dmu_dx_k.call(&state, params, t, &[]);
+            let dsig_dx_v = dsig_dx_k.call(&state, params, t, &[]);
+            let dmu_dth_v = dmu_dth_k.call(&state, params, t, &[]);
+            let dsig_dth_v = dsig_dth_k.call(&state, params, t, &[]);
+
+            let drift_z = dmu_dx_v * z + dmu_dth_v;
+            let diff_z = dsig_dx_v * z + dsig_dth_v;
+
+            state[0] += mu_v * dt + sig_v * dw;
+            z += drift_z * dt + diff_z * dw;
+            t += dt;
+        }
+        let f = pay_k.call(&state, params, horizon, &[]);
+        let df = dpay_dx_k.call(&state, params, horizon, &[]);
+        let greek_sample = df * z;
+        sum_price += f;
+        sum_price_sq += f * f;
+        sum_greek += greek_sample;
+        sum_greek_sq += greek_sample * greek_sample;
+    }
+
+    Ok(PriceAndParamGreek {
+        price: finalise(sum_price, sum_price_sq, n_paths),
+        param_greek: finalise(sum_greek, sum_greek_sq, n_paths),
+        param_index,
+    })
+}
+
 fn finalise(sum: f64, sum_sq: f64, n_paths: usize) -> Estimate {
     let n = n_paths as f64;
     let mean = sum / n;
@@ -593,6 +708,54 @@ mod tests {
             bel.delta.mean,
             fd_delta,
             bel.delta.stderr,
+        );
+    }
+
+    #[test]
+    fn pathwise_rho_gbm_matches_analytic() {
+        // GBM with linear payoff: E[X_T] = x0 exp(r T), so
+        // d/dr E[X_T] = x0 T exp(r T).
+        let (r, _, x0, t, mu, sig, payoff, params) = gbm_case();
+        let out =
+            euler_scalar_jit_param_greek(&mu, &sig, &payoff, 0, &params, x0, t, 256, 40_000, 321)
+                .unwrap();
+        let expected = x0 * t * (r * t).exp();
+        let tol = 4.0 * out.param_greek.stderr + 0.2;
+        assert!(
+            (out.param_greek.mean - expected).abs() < tol,
+            "rho {} vs analytic {} (stderr {})",
+            out.param_greek.mean,
+            expected,
+            out.param_greek.stderr,
+        );
+    }
+
+    #[test]
+    fn pathwise_vega_gbm_square_payoff_matches_analytic() {
+        // Payoff f(X) = X^2. For GBM,
+        // E[X_T^2] = x0^2 * exp((2 r + sigma^2) T),
+        // so d/dsigma E[X_T^2] = x0^2 * 2 sigma T * exp((2 r + sigma^2) T).
+        let r = 0.05;
+        let sigma = 0.2;
+        let x0 = 100.0;
+        let t = 1.0;
+        let params = [r, sigma];
+        let mu = Expr::param(0) * Expr::state(0);
+        let sig = Expr::param(1) * Expr::state(0);
+        let payoff = Expr::state(0).pow(2);
+
+        let out =
+            euler_scalar_jit_param_greek(&mu, &sig, &payoff, 1, &params, x0, t, 512, 60_000, 99)
+                .unwrap();
+        let expected = x0 * x0 * 2.0 * sigma * t * ((2.0 * r + sigma * sigma) * t).exp();
+        // Higher variance than linear payoff, so looser tolerance.
+        let tol = 4.0 * out.param_greek.stderr + 50.0;
+        assert!(
+            (out.param_greek.mean - expected).abs() < tol,
+            "vega {} vs analytic {} (stderr {})",
+            out.param_greek.mean,
+            expected,
+            out.param_greek.stderr,
         );
     }
 
