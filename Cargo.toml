@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+    "elworthy-expr",
+    "elworthy-diff",
+    "elworthy-weight",
+    "elworthy-codegen",
+    "elworthy-rt",
+    "elworthy",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Alejandro Soto Franco"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/alejandro-soto-franco/elworthy"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Intra-workspace
+elworthy-expr    = { path = "elworthy-expr" }
+elworthy-diff    = { path = "elworthy-diff" }
+elworthy-weight  = { path = "elworthy-weight" }
+elworthy-codegen = { path = "elworthy-codegen" }
+elworthy-rt      = { path = "elworthy-rt" }
+
+# JIT backend
+cranelift         = "0.110"
+cranelift-jit     = "0.110"
+cranelift-module  = "0.110"
+cranelift-native  = "0.110"
+
+# Error handling
+thiserror = "2"
+anyhow    = "1"
+
+# Numerics
+libm = "0.2"
+
+# RNG
+rand        = "0.8"
+rand_xoshiro = "0.6"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = 1

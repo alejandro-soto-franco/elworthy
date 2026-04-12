@@ -1,0 +1,11 @@
+[package]
+name = "elworthy-diff"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Symbolic differentiation for elworthy expression trees."
+
+[dependencies]
+elworthy-expr.workspace = true

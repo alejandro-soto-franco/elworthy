@@ -1,0 +1,11 @@
+[package]
+name = "elworthy-expr"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Symbolic expression AST, canonicalisation, and CSE for elworthy."
+
+[dependencies]
+thiserror.workspace = true

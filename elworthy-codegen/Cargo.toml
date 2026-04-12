@@ -1,0 +1,12 @@
+[package]
+name = "elworthy-codegen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Cranelift lowering of elworthy expression trees."
+
+[dependencies]
+elworthy-expr.workspace = true
+thiserror.workspace = true

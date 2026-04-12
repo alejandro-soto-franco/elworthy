@@ -1,0 +1,19 @@
+[package]
+name = "elworthy-rt"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Runtime kernel cache, SIMD RNG, and dispatch for elworthy."
+
+[dependencies]
+elworthy-expr.workspace = true
+elworthy-codegen.workspace = true
+rand.workspace = true
+rand_xoshiro.workspace = true
+rand_distr = "0.4"
+
+[dev-dependencies]
+elworthy-diff.workspace = true
+elworthy-weight.workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "elworthy"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A Rust JIT compiler that specialises Bismut-Elworthy-Li formulas into SIMD kernels for unbiased Monte Carlo Greeks on non-stationary SDEs."
+
+[dependencies]
+elworthy-expr.workspace = true
+elworthy-diff.workspace = true
+elworthy-weight.workspace = true
+elworthy-codegen.workspace = true
+elworthy-rt.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
