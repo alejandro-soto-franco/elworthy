@@ -126,6 +126,68 @@ pub fn euler_scalar_jit(
     Ok(finalise(sum, sum_sq, n_paths))
 }
 
+/// Scalar Milstein-scheme driver, JIT backend.
+///
+/// Adds the Milstein correction to the Euler-Maruyama step:
+///
+/// ```text
+/// X_{k+1} = X_k + mu dt + sigma dW_k
+///          + 0.5 sigma sigma'(X_k) (dW_k^2 - dt).
+/// ```
+///
+/// This is strong order 1 (vs Euler's 0.5), reducing bias in Greek
+/// estimators on non-Lipschitz diffusions (square-root, log-normal).
+/// Symbolic diff of `sigma` w.r.t. the state is cached at compile time.
+#[allow(clippy::too_many_arguments)]
+pub fn milstein_scalar_jit(
+    mu: &Expr,
+    sigma: &Expr,
+    payoff: &Expr,
+    params: &[f64],
+    x0: f64,
+    horizon: f64,
+    n_steps: usize,
+    n_paths: usize,
+    seed: u64,
+) -> Result<Estimate, elworthy_codegen::CodegenError> {
+    let dsig = simplify(&diff(sigma, &Var::State(0)));
+    let shape = KernelShape {
+        n_state: 1,
+        n_params: params.len(),
+        n_dw: 0,
+    };
+    let mu_k = ScalarKernel::compile(mu, shape)?;
+    let sig_k = ScalarKernel::compile(sigma, shape)?;
+    let dsig_k = ScalarKernel::compile(&dsig, shape)?;
+    let pay_k = ScalarKernel::compile(payoff, shape)?;
+
+    let dt = horizon / n_steps as f64;
+    let sqrt_dt = dt.sqrt();
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+
+    let mut sum = 0.0;
+    let mut sum_sq = 0.0;
+    let mut state = [0.0f64; 1];
+
+    for _ in 0..n_paths {
+        state[0] = x0;
+        let mut t = 0.0;
+        for _ in 0..n_steps {
+            let z: f64 = StandardNormal.sample(&mut rng);
+            let dw = sqrt_dt * z;
+            let mu_v = mu_k.call(&state, params, t, &[]);
+            let sig_v = sig_k.call(&state, params, t, &[]);
+            let dsig_v = dsig_k.call(&state, params, t, &[]);
+            state[0] += mu_v * dt + sig_v * dw + 0.5 * sig_v * dsig_v * (dw * dw - dt);
+            t += dt;
+        }
+        let f = pay_k.call(&state, params, horizon, &[]);
+        sum += f;
+        sum_sq += f * f;
+    }
+    Ok(finalise(sum, sum_sq, n_paths))
+}
+
 /// Cached variant of `euler_scalar_jit` that reuses kernels across calls.
 ///
 /// Useful for calibration loops that evaluate the same symbolic SDE
@@ -617,6 +679,194 @@ pub fn euler_multi_jit(
     Ok(finalise(sum, sum_sq, n_paths))
 }
 
+/// Pathwise delta for a multi-dimensional SDE system with a smooth
+/// payoff.
+///
+/// Computes `d/dx_0[delta_index] E[f(X_T)]` by propagating the column of
+/// the tangent-flow matrix corresponding to the initial-condition
+/// component `delta_index`. For `Y_i(t) = dX_i(t)/dx_0[delta_index]`
+/// with `Y_i(0) = 1 if i == delta_index else 0`, the driver advances
+///
+/// ```text
+/// dY_i = sum_j (d mu_i / d x_j) Y_j dt
+///      + sum_l sum_j (d sigma_{i,l} / d x_j) Y_j dW_l,
+/// ```
+///
+/// and at terminal time forms the pathwise sample
+/// `sum_i (d f / d x_i)(X_T) * Y_i(T)`.
+///
+/// Requires `f` to be C^1 in every state component. For non-smooth
+/// payoffs use a Malliavin weight (future work).
+#[allow(clippy::too_many_arguments)]
+pub fn euler_multi_jit_pathwise_delta(
+    sde: &MultiSde,
+    delta_index: u32,
+    params: &[f64],
+    x0: &[f64],
+    horizon: f64,
+    n_steps: usize,
+    n_paths: usize,
+    seed: u64,
+) -> Result<PriceAndDelta, elworthy_codegen::CodegenError> {
+    sde.validate().expect("MultiSde dimensions inconsistent");
+    let n_state = sde.n_state();
+    let n_dw = sde.n_dw();
+    assert_eq!(x0.len(), n_state, "x0 length must equal n_state");
+    assert!((delta_index as usize) < n_state, "delta_index out of range");
+
+    let shape = KernelShape {
+        n_state,
+        n_params: params.len(),
+        n_dw: 0,
+    };
+
+    // Compile primal kernels.
+    let mu_k: Vec<ScalarKernel> = sde
+        .mu
+        .iter()
+        .map(|e| ScalarKernel::compile(e, shape))
+        .collect::<Result<_, _>>()?;
+    let mut sig_k: Vec<Vec<ScalarKernel>> = Vec::with_capacity(n_state);
+    for row in &sde.sigma {
+        let mut rk = Vec::with_capacity(n_dw);
+        for e in row {
+            rk.push(ScalarKernel::compile(e, shape)?);
+        }
+        sig_k.push(rk);
+    }
+    let pay_k = ScalarKernel::compile(&sde.payoff, shape)?;
+
+    // Compile Jacobians.
+    // dmu_dx[i][j] = d mu_i / d x_j
+    let mut dmu_dx_k: Vec<Vec<ScalarKernel>> = Vec::with_capacity(n_state);
+    for mu_i in &sde.mu {
+        let mut row = Vec::with_capacity(n_state);
+        for j in 0..n_state {
+            let expr = simplify(&diff(mu_i, &Var::State(j as u32)));
+            row.push(ScalarKernel::compile(&expr, shape)?);
+        }
+        dmu_dx_k.push(row);
+    }
+    // dsigma_dx[i][l][j] = d sigma_{i,l} / d x_j
+    let mut dsig_dx_k: Vec<Vec<Vec<ScalarKernel>>> = Vec::with_capacity(n_state);
+    for row in &sde.sigma {
+        let mut row_jac: Vec<Vec<ScalarKernel>> = Vec::with_capacity(n_dw);
+        for sig_il in row {
+            let mut by_j = Vec::with_capacity(n_state);
+            for j in 0..n_state {
+                let expr = simplify(&diff(sig_il, &Var::State(j as u32)));
+                by_j.push(ScalarKernel::compile(&expr, shape)?);
+            }
+            row_jac.push(by_j);
+        }
+        dsig_dx_k.push(row_jac);
+    }
+    // dpayoff_dx[i]
+    let mut dpay_dx_k: Vec<ScalarKernel> = Vec::with_capacity(n_state);
+    for j in 0..n_state {
+        let expr = simplify(&diff(&sde.payoff, &Var::State(j as u32)));
+        dpay_dx_k.push(ScalarKernel::compile(&expr, shape)?);
+    }
+
+    let dt = horizon / n_steps as f64;
+    let sqrt_dt = dt.sqrt();
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+
+    let mut sum_price = 0.0;
+    let mut sum_price_sq = 0.0;
+    let mut sum_delta = 0.0;
+    let mut sum_delta_sq = 0.0;
+
+    let mut state = vec![0.0f64; n_state];
+    let mut y = vec![0.0f64; n_state];
+    let mut dw = vec![0.0f64; n_dw];
+    let mut mu_v = vec![0.0f64; n_state];
+    let mut sig_v = vec![vec![0.0f64; n_dw]; n_state];
+    let mut dmu_v = vec![vec![0.0f64; n_state]; n_state];
+    let mut dsig_v = vec![vec![vec![0.0f64; n_state]; n_dw]; n_state];
+    let mut state_next = vec![0.0f64; n_state];
+    let mut y_next = vec![0.0f64; n_state];
+
+    for _ in 0..n_paths {
+        state.copy_from_slice(x0);
+        for (i, yi) in y.iter_mut().enumerate() {
+            *yi = if i as u32 == delta_index { 1.0 } else { 0.0 };
+        }
+        let mut t = 0.0;
+        for _ in 0..n_steps {
+            for d in dw.iter_mut() {
+                let z: f64 = StandardNormal.sample(&mut rng);
+                *d = sqrt_dt * z;
+            }
+            // Evaluate all kernels at current state.
+            for i in 0..n_state {
+                mu_v[i] = mu_k[i].call(&state, params, t, &[]);
+                for j in 0..n_state {
+                    dmu_v[i][j] = dmu_dx_k[i][j].call(&state, params, t, &[]);
+                }
+                for l in 0..n_dw {
+                    sig_v[i][l] = sig_k[i][l].call(&state, params, t, &[]);
+                    for j in 0..n_state {
+                        dsig_v[i][l][j] = dsig_dx_k[i][l][j].call(&state, params, t, &[]);
+                    }
+                }
+            }
+            // Update X and Y together.
+            for i in 0..n_state {
+                let mut x_inc = mu_v[i] * dt;
+                for l in 0..n_dw {
+                    x_inc += sig_v[i][l] * dw[l];
+                }
+                state_next[i] = state[i] + x_inc;
+
+                let mut y_drift = 0.0;
+                for j in 0..n_state {
+                    y_drift += dmu_v[i][j] * y[j];
+                }
+                let mut y_diff_total = 0.0;
+                for l in 0..n_dw {
+                    let mut s = 0.0;
+                    for j in 0..n_state {
+                        s += dsig_v[i][l][j] * y[j];
+                    }
+                    y_diff_total += s * dw[l];
+                }
+                y_next[i] = y[i] + y_drift * dt + y_diff_total;
+            }
+            state.copy_from_slice(&state_next);
+            y.copy_from_slice(&y_next);
+            // Pathwise tangent flow often requires a strictly positive
+            // floor (e.g. Heston sigma' involves 1/sqrt(v) which blows up
+            // at v = 0). Apply a small epsilon floor for components listed
+            // as nonneg_state.
+            const EPS: f64 = 1e-10;
+            for &idx in &sde.nonneg_state {
+                if let Some(s) = state.get_mut(idx) {
+                    if *s < EPS {
+                        *s = EPS;
+                    }
+                }
+            }
+            t += dt;
+        }
+        let f = pay_k.call(&state, params, horizon, &[]);
+        let mut greek_sample = 0.0;
+        for j in 0..n_state {
+            let df_dxj = dpay_dx_k[j].call(&state, params, horizon, &[]);
+            greek_sample += df_dxj * y[j];
+        }
+        sum_price += f;
+        sum_price_sq += f * f;
+        sum_delta += greek_sample;
+        sum_delta_sq += greek_sample * greek_sample;
+    }
+
+    Ok(PriceAndDelta {
+        price: finalise(sum_price, sum_price_sq, n_paths),
+        delta: finalise(sum_delta, sum_delta_sq, n_paths),
+    })
+}
+
 fn finalise(sum: f64, sum_sq: f64, n_paths: usize) -> Estimate {
     let n = n_paths as f64;
     let mean = sum / n;
@@ -854,6 +1104,23 @@ mod tests {
     }
 
     #[test]
+    fn milstein_gbm_mean_matches_analytic() {
+        // Milstein should reproduce E[X_T] = x0 exp(r T) for GBM just like
+        // Euler, with equal or smaller bias on fine step counts.
+        let (r, _, x0, t, mu, sig, payoff, params) = gbm_case();
+        let est = milstein_scalar_jit(&mu, &sig, &payoff, &params, x0, t, 128, 20_000, 17).unwrap();
+        let expected = x0 * (r * t).exp();
+        let tol = 4.0 * est.stderr + 0.5;
+        assert!(
+            (est.mean - expected).abs() < tol,
+            "Milstein mean {} vs analytic {} (stderr {})",
+            est.mean,
+            expected,
+            est.stderr,
+        );
+    }
+
+    #[test]
     fn pathwise_rho_gbm_matches_analytic() {
         // GBM with linear payoff: E[X_T] = x0 exp(r T), so
         // d/dr E[X_T] = x0 T exp(r T).
@@ -901,12 +1168,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn heston_risk_neutral_martingale() {
-        // Under risk-neutral measure with discounting omitted, Heston's
-        // S process has drift r * S, so E[S_T] = S_0 * exp(r T) no matter
-        // what the variance dynamics look like. This validates the
-        // multi-dimensional driver end-to-end.
+    fn build_heston_sde() -> (MultiSde, [f64; 4], f64, f64, f64, f64) {
         use elworthy_expr::Fun;
         let r = 0.04;
         let kappa = 1.5;
@@ -916,22 +1178,11 @@ mod tests {
         let v0 = 0.04;
         let t = 0.5;
 
-        // params: [r, kappa, theta, xi]
-        let params = [r, kappa, theta_v, xi];
-
         let s = Expr::state(0);
         let v = Expr::state(1);
-
-        // mu_0 = r * S, mu_1 = kappa * (theta - v)
         let mu_s = Expr::param(0) * s.clone();
         let mu_v = Expr::param(1) * (Expr::param(2) - v.clone());
 
-        // sigma matrix (uncorrelated for this smoke test):
-        //   dS = r S dt + sqrt(v) S dW_1
-        //   dv = kappa (theta - v) dt + xi sqrt(v) dW_2
-        // with max(v, 0) enforced via a reflecting evaluation is a follow
-        // up; here we pick parameters that keep variance positive with
-        // high probability under Euler.
         let sqrt_v = v.apply(Fun::Sqrt);
         let sig_ss = sqrt_v.clone() * s;
         let sig_sv = Expr::c(0.0);
@@ -942,18 +1193,39 @@ mod tests {
             mu: vec![mu_s, mu_v],
             sigma: vec![vec![sig_ss, sig_sv], vec![sig_vs, sig_vv]],
             payoff: Expr::state(0),
-            nonneg_state: vec![1], // full-truncation on variance
+            nonneg_state: vec![1],
         };
+        (sde, [r, kappa, theta_v, xi], s0, v0, t, r)
+    }
 
+    #[test]
+    fn heston_pathwise_delta_linear_payoff() {
+        // Under risk-neutral drift, d/dS_0 E[S_T] = exp(r T) for any
+        // Heston variance dynamics.
+        let (sde, params, s0, v0, t, r) = build_heston_sde();
+        let out =
+            euler_multi_jit_pathwise_delta(&sde, 0, &params, &[s0, v0], t, 512, 40_000, 20_260_413)
+                .unwrap();
+        let expected = (r * t).exp();
+        let tol = 4.0 * out.delta.stderr + 0.02;
+        assert!(
+            (out.delta.mean - expected).abs() < tol,
+            "Heston delta {} vs analytic {} (stderr {})",
+            out.delta.mean,
+            expected,
+            out.delta.stderr,
+        );
+    }
+
+    #[test]
+    fn heston_risk_neutral_martingale() {
+        // Under risk-neutral measure, Heston's S process is a martingale,
+        // so E[S_T] = S_0 * exp(r T). Validates multi-dim driver.
+        let (sde, params, s0, v0, t, r) = build_heston_sde();
         let est = euler_multi_jit(&sde, &params, &[s0, v0], t, 512, 40_000, 20_260_413).unwrap();
-
         let expected = s0 * (r * t).exp();
         let tol = 4.0 * est.stderr + 0.5;
-        assert!(
-            est.mean.is_finite(),
-            "Heston E[S_T] is non-finite: {}",
-            est.mean
-        );
+        assert!(est.mean.is_finite());
         assert!(
             (est.mean - expected).abs() < tol,
             "Heston E[S_T] {} vs analytic {} (stderr {})",

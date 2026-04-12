@@ -59,6 +59,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Full-truncation post-step clamp for variance components (`nonneg_state: vec![1]` in the Heston test).
 - Heston martingale test: `E[S_T] = S_0 exp(rT)` recovered within 4 stderr under 2-D Euler with stock + stochastic variance.
 
+### Added (Heston delta, Milstein, disk cache, CPU detect)
+
+- `elworthy-rt::euler_multi_jit_pathwise_delta`: pathwise delta for multi-dimensional SDEs. Symbolically differentiates every `mu_i`, `sigma_{i,j}`, and the payoff w.r.t. every state component, JIT-compiles the Jacobian kernels, and advances the full tangent-flow column alongside the state. Applies an epsilon floor to `nonneg_state` components so `1/sqrt(v)`-style derivatives do not blow up at `v = 0`.
+- **First Heston delta** in the stack: pathwise delta on 2-D (S, v) Heston with `f(S) = S` matches analytic `exp(rT)` within 4 stderr. This is the thesis centrepiece.
+- `elworthy-rt::milstein_scalar_jit`: strong-order-1 Milstein discretisation for scalar SDEs, adding the `0.5 sigma sigma' (dW^2 - dt)` correction to the Euler step. Reduces discretisation bias on non-Lipschitz diffusions.
+- `elworthy-codegen::serial`: compact binary format for `Expr` trees with roundtrip tests.
+- `elworthy-codegen::DiskCache`: disk-persisted AST cache (not machine code) at `$ELWORTHY_CACHE_DIR` / `$XDG_CACHE_HOME/elworthy/` / `~/.cache/elworthy/`, with format-version stamp for stale-file detection. Atomic writes via rename. Cache directory is a runtime artefact, never tracked by git.
+- `elworthy-codegen::cpu::has_avx2`, `preferred_f64_lanes`: runtime CPU detection. Scaffolds the feature-gated `simd_avx2` path for a future F64X4 `VectorKernel4`.
+
 ### Planned
 
 - SIMD-over-paths `VectorKernel` (f64x4 / f64x8).

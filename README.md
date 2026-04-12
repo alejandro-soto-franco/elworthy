@@ -13,7 +13,7 @@ $$
 
 ## Status
 
-v0.1. Scalar Cranelift JIT end-to-end, 2-lane SIMD driver live for arithmetic and `sqrt`, kernel cache for calibration reuse, first unbiased Bismut-Elworthy-Li delta wired through GBM. Transcendentals in the vector backend and general tangent-flow weight synthesis are the next pieces.
+v0.1. Full scalar Cranelift JIT with transcendentals via libm, 2-lane SIMD `VectorKernel` supporting the entire `Fun` set per lane, kernel cache (in-memory and disk-persisted AST), multi-dimensional SDE driver with full-truncation clamping, Milstein scheme, and first-class Greek drivers: constant-flow BEL delta (GBM/ABM), general tangent-flow BEL delta (any scalar SDE), pathwise parameter Greek (rho/vega on smooth payoffs), and pathwise delta on multi-dim Heston. Runtime AVX2 detection scaffolded for a forthcoming F64X4 backend.
 
 ## Architecture
 

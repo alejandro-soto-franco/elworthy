@@ -13,12 +13,16 @@
 //! floating-point rounding.
 
 pub mod cache;
+pub mod cpu;
+pub mod disk_cache;
 pub mod hash;
 pub mod interp;
 pub mod jit;
+pub mod serial;
 pub mod vec_jit;
 
 pub use cache::KernelCache;
+pub use disk_cache::DiskCache;
 pub use hash::expr_hash;
 pub use interp::eval;
 pub use jit::{CodegenError, KernelShape, LengthError, ScalarKernel};

@@ -16,5 +16,11 @@ cranelift-module.workspace = true
 cranelift-native.workspace = true
 libm.workspace = true
 
+[features]
+default = []
+# Enable F64X4 (256-bit) SIMD backend. Requires an AVX2 host; callers
+# should gate usage behind `cpu::has_avx2()` at runtime.
+simd_avx2 = []
+
 [dev-dependencies]
 proptest = "1"
