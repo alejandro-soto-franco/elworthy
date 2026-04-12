@@ -6,7 +6,7 @@ Named after K. David Elworthy, co-author of the Bismut-Elworthy-Li integration-b
 
 $$
 \partial_x \mathbb{E}[f(X_T) \mid X_0 = x]
-= \mathbb{E}\!\left[f(X_T) \cdot \tfrac{1}{T}\!\int_0^T \sigma^{-1}(X_s)^\top\, \partial_x X_s\, \mathrm{d}W_s \right].
+= \mathbb{E} \left[f(X_T) \cdot \tfrac{1}{T}\!\int_0^T \sigma^{-1}(X_s)^\top\, \partial_x X_s\, \mathrm{d}W_s \right].
 $$
 
 `elworthy` takes a symbolic SDE, symbolically differentiates its coefficients, synthesises the Malliavin weight for a requested Greek, and lowers the whole inner-loop body (state update + weight accumulation + payoff) to a single SIMD kernel via Cranelift. Each AVX lane carries one Monte Carlo path.
