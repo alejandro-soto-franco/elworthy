@@ -27,6 +27,8 @@ pub enum CodegenError {
         idx: u32,
         max: usize,
     },
+    #[error("vector backend does not yet support function {0:?}; use scalar kernel")]
+    UnsupportedVectorFun(elworthy_expr::Fun),
 }
 
 /// Shape descriptor captured at compile time so `call` can validate inputs.

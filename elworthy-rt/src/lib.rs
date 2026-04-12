@@ -10,7 +10,7 @@
 //! Both produce the same `Estimate` within statistical noise; the JIT path
 //! is typically 5-30x faster depending on expression complexity.
 
-use elworthy_codegen::{eval, KernelShape, ScalarKernel};
+use elworthy_codegen::{eval, KernelShape, ScalarKernel, VectorKernel};
 use elworthy_expr::{Expr, Var};
 use rand::distributions::Distribution;
 use rand::SeedableRng;
@@ -223,6 +223,76 @@ fn finalise(sum: f64, sum_sq: f64, n_paths: usize) -> Estimate {
     }
 }
 
+/// Scalar Euler-Maruyama driver, two-lane SIMD backend.
+///
+/// Compiles `mu`, `sigma`, and `payoff` as `VectorKernel`s and evaluates
+/// two independent Monte Carlo paths per call to the inner loop. Each
+/// `VectorKernel` rejects transcendental payoffs; use the scalar JIT for
+/// expressions containing `exp`/`log`/`sin`/`cos`.
+///
+/// `n_paths` is rounded up to the next multiple of `VectorKernel::LANES`.
+#[allow(clippy::too_many_arguments)]
+pub fn euler_scalar_simd(
+    mu: &Expr,
+    sigma: &Expr,
+    payoff: &Expr,
+    params: &[f64],
+    x0: f64,
+    horizon: f64,
+    n_steps: usize,
+    n_paths: usize,
+    seed: u64,
+) -> Result<Estimate, elworthy_codegen::CodegenError> {
+    const LANES: usize = VectorKernel::LANES;
+    let shape = KernelShape {
+        n_state: 1,
+        n_params: params.len(),
+        n_dw: 0,
+    };
+    let mu_k = VectorKernel::compile(mu, shape)?;
+    let sig_k = VectorKernel::compile(sigma, shape)?;
+    let pay_k = VectorKernel::compile(payoff, shape)?;
+
+    let n_batches = n_paths.div_ceil(LANES);
+    let effective_paths = n_batches * LANES;
+
+    let dt = horizon / n_steps as f64;
+    let sqrt_dt = dt.sqrt();
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+
+    let mut sum = 0.0;
+    let mut sum_sq = 0.0;
+
+    let mut state = [0.0f64; LANES];
+    let mut drift = [0.0f64; LANES];
+    let mut diffusion = [0.0f64; LANES];
+    let mut pay_out = [0.0f64; LANES];
+
+    for _ in 0..n_batches {
+        for s in state.iter_mut() {
+            *s = x0;
+        }
+        let mut t = 0.0;
+        for _ in 0..n_steps {
+            mu_k.call(&state, params, t, &[], &mut drift);
+            sig_k.call(&state, params, t, &[], &mut diffusion);
+            for lane in 0..LANES {
+                let z: f64 = StandardNormal.sample(&mut rng);
+                let dw = sqrt_dt * z;
+                state[lane] += drift[lane] * dt + diffusion[lane] * dw;
+            }
+            t += dt;
+        }
+        pay_k.call(&state, params, horizon, &[], &mut pay_out);
+        for &f in pay_out.iter() {
+            sum += f;
+            sum_sq += f * f;
+        }
+    }
+
+    Ok(finalise(sum, sum_sq, effective_paths))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +324,21 @@ mod tests {
         let expected = x0 * (r * t).exp();
         let tol = 4.0 * est.stderr + 0.5;
         assert!((est.mean - expected).abs() < tol);
+    }
+
+    #[test]
+    fn simd_matches_analytic() {
+        let (r, _, x0, t, mu, sig, payoff, params) = gbm_case();
+        let est = euler_scalar_simd(&mu, &sig, &payoff, &params, x0, t, 256, 20_000, 7).unwrap();
+        let expected = x0 * (r * t).exp();
+        let tol = 4.0 * est.stderr + 0.5;
+        assert!(
+            (est.mean - expected).abs() < tol,
+            "simd mean {} vs expected {} (stderr {})",
+            est.mean,
+            expected,
+            est.stderr,
+        );
     }
 
     #[test]

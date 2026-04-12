@@ -9,7 +9,9 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use elworthy_expr::{Expr, Fun};
-use elworthy_rt::{euler_scalar_interp, euler_scalar_jit, euler_scalar_jit_delta_bel};
+use elworthy_rt::{
+    euler_scalar_interp, euler_scalar_jit, euler_scalar_jit_delta_bel, euler_scalar_simd,
+};
 
 fn gbm_bench(c: &mut Criterion) {
     let r = 0.05;
@@ -36,6 +38,13 @@ fn gbm_bench(c: &mut Criterion) {
         b.iter(|| {
             black_box(
                 euler_scalar_jit(&mu, &sig, &payoff, &params, x0, t, steps, paths, 42).unwrap(),
+            )
+        });
+    });
+    group.bench_function("simd_2lane", |b| {
+        b.iter(|| {
+            black_box(
+                euler_scalar_simd(&mu, &sig, &payoff, &params, x0, t, steps, paths, 42).unwrap(),
             )
         });
     });
@@ -68,6 +77,13 @@ fn heston_like_bench(c: &mut Criterion) {
         b.iter(|| {
             black_box(
                 euler_scalar_jit(&mu, &sig, &payoff, &params, x0, t, steps, paths, 42).unwrap(),
+            )
+        });
+    });
+    group.bench_function("simd_2lane", |b| {
+        b.iter(|| {
+            black_box(
+                euler_scalar_simd(&mu, &sig, &payoff, &params, x0, t, steps, paths, 42).unwrap(),
             )
         });
     });

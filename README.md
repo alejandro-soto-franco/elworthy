@@ -13,7 +13,7 @@ $$
 
 ## Status
 
-v0.1. Scalar Cranelift JIT end-to-end; SIMD-over-paths backend in progress.
+v0.1. Scalar Cranelift JIT end-to-end, 2-lane SIMD driver live for arithmetic and `sqrt`, kernel cache for calibration reuse, first unbiased Bismut-Elworthy-Li delta wired through GBM. Transcendentals in the vector backend and general tangent-flow weight synthesis are the next pieces.
 
 ## Architecture
 

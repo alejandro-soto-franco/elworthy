@@ -27,6 +27,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `elworthy gbm-delta` CLI subcommand.
 - Tests: BEL delta on GBM matches analytic `exp(rT)` and bumped finite-difference delta.
 
+### Added (SIMD + infrastructure)
+
+- `elworthy-codegen::VectorKernel`: two-lane Cranelift SIMD JIT (128-bit F64X2) that evaluates two Monte Carlo paths per call. Structure-of-arrays input layout; broadcasts scalar `params`/`time`; supports arithmetic, integer powers, and `sqrt`; rejects transcendentals with `CodegenError::UnsupportedVectorFun`.
+- Property test verifying both lanes of `VectorKernel` match the scalar JIT per lane across 96 random expressions.
+- `elworthy-rt::euler_scalar_simd`: two-lane vectorised Euler-Maruyama driver; rounds path count up to the nearest multiple of `VectorKernel::LANES`.
+- `KernelCache` and `expr_hash` in `elworthy-codegen` for zero-recompile kernel reuse across calibration loops.
+- Criterion bench suite covers the SIMD driver alongside interpreter and scalar JIT.
+
 ### Planned
 
 - SIMD-over-paths `VectorKernel` (f64x4 / f64x8).
