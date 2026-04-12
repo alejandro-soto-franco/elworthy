@@ -3,7 +3,7 @@
 
 use elworthy_diff::diff;
 use elworthy_expr::{Expr, Var};
-use elworthy_rt::euler_scalar;
+use elworthy_rt::euler_scalar_interp as euler_scalar;
 use elworthy_weight::{synthesise_scalar, Greek};
 
 /// Differentiating x^2 with respect to x yields 2x (up to canonicalisation).
@@ -58,6 +58,8 @@ fn gbm_mean_matches_analytic() {
     assert!(
         (est.mean - expected).abs() < tol,
         "mean {} vs expected {} (stderr {})",
-        est.mean, expected, est.stderr,
+        est.mean,
+        expected,
+        est.stderr,
     );
 }

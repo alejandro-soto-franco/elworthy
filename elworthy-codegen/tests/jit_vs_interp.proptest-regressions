@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f091a120ef95c3bdc10ced0123882f83914988702380659fca7946dcfe9d1af9 # shrinks to expr = Fun(Cos, Fun(Sqrt, Var(Param(1)))), state = [0.0, 0.0, 0.0], params = [0.0, -1.365496700094034, 0.0], time = 0.0, dw = [0.0, 0.0]

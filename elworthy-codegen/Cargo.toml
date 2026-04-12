@@ -10,3 +10,11 @@ description = "Cranelift lowering of elworthy expression trees."
 [dependencies]
 elworthy-expr.workspace = true
 thiserror.workspace = true
+cranelift.workspace = true
+cranelift-jit.workspace = true
+cranelift-module.workspace = true
+cranelift-native.workspace = true
+libm.workspace = true
+
+[dev-dependencies]
+proptest = "1"

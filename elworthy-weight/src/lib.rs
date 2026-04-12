@@ -4,8 +4,8 @@
 //! Greek, emits the symbolic integrand of the Malliavin weight that, when
 //! accumulated over the path, produces an unbiased estimator of the Greek.
 
-use elworthy_expr::{Expr, Var};
 use elworthy_diff::diff;
+use elworthy_expr::{Expr, Var};
 
 /// Which Greek to synthesise a weight for.
 #[derive(Debug, Clone, Copy)]
@@ -33,12 +33,7 @@ pub struct WeightIncrement {
 ///
 /// Higher-dimensional and parameter-Greek cases require the tangent flow
 /// `Y_t = dX_t / dx_0` and are synthesised in later revisions.
-pub fn synthesise_scalar(
-    sigma: &Expr,
-    _mu: &Expr,
-    greek: Greek,
-    horizon: Expr,
-) -> WeightIncrement {
+pub fn synthesise_scalar(sigma: &Expr, _mu: &Expr, greek: Greek, horizon: Expr) -> WeightIncrement {
     match greek {
         Greek::Delta { state_index } => {
             let _ = diff(sigma, &Var::State(state_index));

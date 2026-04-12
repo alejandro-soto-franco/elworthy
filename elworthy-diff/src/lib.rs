@@ -18,9 +18,7 @@ pub fn diff(expr: &Expr, wrt: &Var) -> Expr {
             }
         }
         Expr::Add(a, b) => diff(a, wrt) + diff(b, wrt),
-        Expr::Mul(a, b) => {
-            diff(a, wrt) * (**b).clone() + (**a).clone() * diff(b, wrt)
-        }
+        Expr::Mul(a, b) => diff(a, wrt) * (**b).clone() + (**a).clone() * diff(b, wrt),
         Expr::Pow(a, n) => {
             let n_f = *n as f64;
             Expr::c(n_f) * (**a).clone().pow(n - 1) * diff(a, wrt)
@@ -33,9 +31,7 @@ pub fn diff(expr: &Expr, wrt: &Var) -> Expr {
                 Fun::Log => Expr::c(1.0) * inner.pow(-1),
                 Fun::Sin => Expr::Fun(Fun::Cos, Arc::new(inner)),
                 Fun::Cos => Expr::c(-1.0) * Expr::Fun(Fun::Sin, Arc::new(inner)),
-                Fun::Sqrt => {
-                    Expr::c(0.5) * Expr::Fun(Fun::Sqrt, Arc::new(inner)).pow(-1)
-                }
+                Fun::Sqrt => Expr::c(0.5) * Expr::Fun(Fun::Sqrt, Arc::new(inner)).pow(-1),
             };
             outer * da
         }
