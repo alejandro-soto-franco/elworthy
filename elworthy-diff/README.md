@@ -5,6 +5,8 @@
 
 Symbolic differentiation over `elworthy_expr::Expr`.
 
+Part of the [**elworthy**](https://github.com/alejandro-soto-franco/elworthy) workspace: a Rust JIT compiler that specialises Bismut-Elworthy-Li formulas into SIMD kernels for unbiased Monte Carlo Greeks on non-stationary SDEs.
+
 ## What it provides
 
 - `diff(expr, wrt)`: partial derivative of a symbolic expression with respect to any `Var`.

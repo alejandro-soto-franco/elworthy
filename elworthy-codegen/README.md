@@ -5,6 +5,8 @@
 
 Cranelift lowering for elworthy expression trees, plus a reference scalar interpreter.
 
+Part of the [**elworthy**](https://github.com/alejandro-soto-franco/elworthy) workspace: a Rust JIT compiler that specialises Bismut-Elworthy-Li formulas into SIMD kernels for unbiased Monte Carlo Greeks on non-stationary SDEs.
+
 ## What it provides
 
 - `eval(expr, env)`: a tree-walking scalar interpreter used as the oracle for JIT correctness tests.

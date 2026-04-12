@@ -5,6 +5,8 @@
 
 Command-line entry point for the elworthy Monte Carlo toolchain.
 
+Part of the [**elworthy**](https://github.com/alejandro-soto-franco/elworthy) workspace: a Rust JIT compiler that specialises Bismut-Elworthy-Li formulas into SIMD kernels for unbiased Monte Carlo Greeks on non-stationary SDEs.
+
 ## Install
 
 ```bash

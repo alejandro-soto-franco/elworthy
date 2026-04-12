@@ -5,6 +5,8 @@
 
 Monte Carlo runtime for elworthy: SDE integration scheme, RNG, and kernel dispatch.
 
+Part of the [**elworthy**](https://github.com/alejandro-soto-franco/elworthy) workspace: a Rust JIT compiler that specialises Bismut-Elworthy-Li formulas into SIMD kernels for unbiased Monte Carlo Greeks on non-stationary SDEs.
+
 ## What it provides
 
 - `euler_scalar`: Euler-Maruyama driver for a 1-D SDE, taking symbolic `mu`, `sigma`, and `payoff` expressions.

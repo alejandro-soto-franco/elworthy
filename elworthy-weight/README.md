@@ -5,6 +5,8 @@
 
 Bismut-Elworthy-Li weight synthesis for elworthy.
 
+Part of the [**elworthy**](https://github.com/alejandro-soto-franco/elworthy) workspace: a Rust JIT compiler that specialises Bismut-Elworthy-Li formulas into SIMD kernels for unbiased Monte Carlo Greeks on non-stationary SDEs.
+
 ## What it provides
 
 Given an SDE `dX = mu(X, t; theta) dt + sigma(X, t; theta) dW` and a requested Greek, this crate emits a `WeightIncrement` whose `coeff_dt` and `coeff_dw` are symbolic expressions. The Monte Carlo driver accumulates:
