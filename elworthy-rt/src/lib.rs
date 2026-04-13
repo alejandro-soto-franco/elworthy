@@ -10,6 +10,8 @@
 //! Both produce the same `Estimate` within statistical noise; the JIT path
 //! is typically 5-30x faster depending on expression complexity.
 
+pub mod from_paths;
+
 use elworthy_codegen::{eval, KernelCache, KernelShape, ScalarKernel, VectorKernel};
 use elworthy_diff::diff;
 use elworthy_expr::{simplify, Expr, Var};
@@ -1187,7 +1189,7 @@ pub fn euler_multi_jit_pathwise_delta(
     })
 }
 
-fn finalise(sum: f64, sum_sq: f64, n_paths: usize) -> Estimate {
+pub(crate) fn finalise(sum: f64, sum_sq: f64, n_paths: usize) -> Estimate {
     let n = n_paths as f64;
     let mean = sum / n;
     let var = (sum_sq / n - mean * mean).max(0.0);
