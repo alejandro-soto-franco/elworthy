@@ -27,4 +27,7 @@ jobs:
       - name: test
         run: cargo test --workspace --all-targets
       - name: doc
-        run: cargo doc --workspace --no-deps
+        # Exclude elworthy-py: it's a cdylib Python extension, not
+        # intended for docs.rs, and rustdoc ICEs on intra-doc links in
+        # cdylib crates on current stable.
+        run: cargo doc --workspace --no-deps --exclude elworthy-py
