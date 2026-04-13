@@ -131,8 +131,11 @@ def main() -> None:
     print()
     print("Tangent-flow (full-path) benchmark, n_paths × n_steps:")
     print()
-    print(f"| n_paths × n_steps | NumPy-Py (ms) | Numba seq (ms) | Numba par (ms) | elworthy (ms) |")
-    print(f"|---:|---:|---:|---:|---:|")
+    import os
+    n_threads = os.cpu_count() or 1
+    print(f"(parallel runs use {n_threads} threads)")
+    print(f"| n_paths × n_steps | NumPy-Py (ms) | Numba seq (ms) | Numba par (ms) | elworthy seq (ms) | elworthy par (ms) |")
+    print(f"|---:|---:|---:|---:|---:|---:|")
 
     # Warm both numba kernels once (first call includes compile time).
     _args = (
@@ -176,23 +179,33 @@ def main() -> None:
         def nb_par():
             return numba_tangent_par(X, dW, sigma_field, d_mu_dx_field, d_sigma_dx_field, T)
 
-        def elworthy_tangent():
+        def elworthy_seq():
             return elworthy.bel_weights_tangent_flow(
                 X, dW, sigma_field, d_mu_dx_field, d_sigma_dx_field, T,
             )
 
-        t_np, pi_np = timed(numpy_tangent, repeats=3)
-        t_seq, pi_seq = timed(nb_seq, repeats=5)
-        t_par, pi_par = timed(nb_par, repeats=5)
-        t_el, pi_el = timed(elworthy_tangent, repeats=5)
+        def elworthy_par():
+            return elworthy.bel_weights_tangent_flow_parallel(
+                X, dW, sigma_field, d_mu_dx_field, d_sigma_dx_field, T,
+            )
 
-        for name, pi in [("numba-seq", pi_seq), ("numba-par", pi_par), ("elworthy", pi_el)]:
+        t_np, pi_np = timed(numpy_tangent, repeats=3)
+        t_nbseq, pi_nbseq = timed(nb_seq, repeats=5)
+        t_nbpar, pi_nbpar = timed(nb_par, repeats=5)
+        t_elseq, pi_elseq = timed(elworthy_seq, repeats=5)
+        t_elpar, pi_elpar = timed(elworthy_par, repeats=5)
+
+        for name, pi in [
+            ("numba-seq", pi_nbseq), ("numba-par", pi_nbpar),
+            ("elworthy-seq", pi_elseq), ("elworthy-par", pi_elpar),
+        ]:
             err = float(np.max(np.abs(pi_np - pi)))
             assert err < 1e-10, f"{name} vs numpy: max |diff| = {err}"
 
         print(
             f"| {n_paths:>7_} × {n_steps:>3} | "
-            f"{t_np * 1e3:9.2f} | {t_seq * 1e3:9.2f} | {t_par * 1e3:9.2f} | {t_el * 1e3:9.2f} |"
+            f"{t_np * 1e3:9.2f} | {t_nbseq * 1e3:9.2f} | {t_nbpar * 1e3:9.2f} | "
+            f"{t_elseq * 1e3:9.2f} | {t_elpar * 1e3:9.2f} |"
         )
 
 

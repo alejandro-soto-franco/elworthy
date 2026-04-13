@@ -517,6 +517,7 @@ dependencies = [
  "elworthy-rt",
  "numpy",
  "pyo3",
+ "rayon",
 ]
 
 [[package]]

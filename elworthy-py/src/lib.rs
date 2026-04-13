@@ -135,6 +135,108 @@ fn bel_weights_tangent_flow<'py>(
     Ok(out.into_pyarray(py))
 }
 
+/// Low-level (parallel): same as [`bel_weights_tangent_flow`] but runs
+/// the per-path loop across a rayon thread pool, releasing the GIL for
+/// the duration. Recommended whenever `n_paths * n_steps` is large
+/// enough to amortise thread spawn cost (~10^5 path-steps or more).
+///
+/// Uses `rayon::current_num_threads()` by default. Bound threads via
+/// `RAYON_NUM_THREADS` or by building a custom `rayon::ThreadPoolBuilder`
+/// in Rust.
+#[pyfunction]
+#[pyo3(signature = (states, dws, sigma, d_mu_dx, d_sigma_dx, horizon))]
+#[allow(clippy::too_many_arguments)]
+fn bel_weights_tangent_flow_parallel<'py>(
+    py: Python<'py>,
+    states: PyReadonlyArray2<'_, f64>,
+    dws: PyReadonlyArray2<'_, f64>,
+    sigma: PyReadonlyArray2<'_, f64>,
+    d_mu_dx: PyReadonlyArray2<'_, f64>,
+    d_sigma_dx: PyReadonlyArray2<'_, f64>,
+    horizon: f64,
+) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    use rayon::prelude::*;
+
+    if horizon <= 0.0 || horizon.is_nan() {
+        return Err(PyValueError::new_err("horizon must be positive"));
+    }
+
+    let s = states.as_array();
+    let dw = dws.as_array();
+    let sg = sigma.as_array();
+    let dm = d_mu_dx.as_array();
+    let ds = d_sigma_dx.as_array();
+
+    let (n_paths, n_states_plus1) = (s.shape()[0], s.shape()[1]);
+    if n_states_plus1 < 2 {
+        return Err(PyValueError::new_err(
+            "states must have at least 2 columns (n_steps + 1)",
+        ));
+    }
+    let n_steps = n_states_plus1 - 1;
+
+    for (name, arr_shape) in [
+        ("dws", dw.shape()),
+        ("sigma", sg.shape()),
+        ("d_mu_dx", dm.shape()),
+        ("d_sigma_dx", ds.shape()),
+    ] {
+        if arr_shape != [n_paths, n_steps] {
+            return Err(PyValueError::new_err(format!(
+                "{name} shape {arr_shape:?} != expected ({n_paths}, {n_steps})",
+            )));
+        }
+    }
+
+    let dt = horizon / n_steps as f64;
+    let inv_t = 1.0 / horizon;
+
+    // Release the GIL so rayon workers can run in parallel with any
+    // other Python thread. Returns Result so we can propagate a
+    // division-by-zero error without panicking across the FFI boundary.
+    let out: Result<Vec<f64>, String> = py.allow_threads(|| {
+        let n_threads = rayon::current_num_threads().max(1);
+        // Chunk paths into ~n_threads work units to amortise per-task
+        // overhead (prange-style scheduling). For small n_paths or huge
+        // n_threads this still works: chunk_size >= 1.
+        let chunk_size = n_paths.div_ceil(n_threads).max(1);
+        let mut buf = vec![0.0f64; n_paths];
+        let chunks: Vec<(usize, &mut [f64])> = buf
+            .chunks_mut(chunk_size)
+            .enumerate()
+            .map(|(i, c)| (i * chunk_size, c))
+            .collect();
+        let res: Result<(), String> = chunks
+            .into_par_iter()
+            .try_for_each(|(start, slice)| {
+                for (j, out_pi) in slice.iter_mut().enumerate() {
+                    let k = start + j;
+                    let mut y = 1.0_f64;
+                    let mut pi = 0.0_f64;
+                    for i in 0..n_steps {
+                        let sig_i = sg[[k, i]];
+                        if sig_i == 0.0 {
+                            return Err(format!(
+                                "sigma[{k}, {i}] = 0 produces division by zero in BEL weight"
+                            ));
+                        }
+                        let dw_i = dw[[k, i]];
+                        pi += inv_t * (y / sig_i) * dw_i;
+                        y += dm[[k, i]] * y * dt + ds[[k, i]] * y * dw_i;
+                    }
+                    *out_pi = pi;
+                }
+                Ok(())
+            });
+        res.map(|_| buf)
+    });
+
+    match out {
+        Ok(v) => Ok(v.into_pyarray(py)),
+        Err(msg) => Err(PyValueError::new_err(msg)),
+    }
+}
+
 /// Low-level: plain Monte Carlo mean and stderr from terminal payoff
 /// samples. Provided for symmetry so NumPy users do not have to write
 /// their own variance accumulator.
@@ -308,6 +410,7 @@ fn price_and_delta_tangent_flow(
 fn _elworthy(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bel_weights_constant_flow, m)?)?;
     m.add_function(wrap_pyfunction!(bel_weights_tangent_flow, m)?)?;
+    m.add_function(wrap_pyfunction!(bel_weights_tangent_flow_parallel, m)?)?;
     m.add_function(wrap_pyfunction!(price_from_samples, m)?)?;
     m.add_function(wrap_pyfunction!(price_and_delta_constant_flow, m)?)?;
     m.add_function(wrap_pyfunction!(price_and_delta_tangent_flow, m)?)?;
