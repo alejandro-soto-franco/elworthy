@@ -10,8 +10,16 @@
 //! (`sigma(X) = s * X`) and arithmetic Brownian motion (`sigma = const`).
 //! Parameter Greeks and general tangent-flow cases are follow-ups.
 
-use elworthy_expr::{Expr, Fun, Var};
+use elworthy_expr::{Expr, Var};
 use std::sync::Arc;
+
+/// Errors returned by weight synthesis.
+#[derive(Debug, thiserror::Error)]
+pub enum SynthesisError {
+    /// A synthesis path exists in theory but is not yet implemented.
+    #[error("weight synthesis not yet implemented: {0}")]
+    NotYetImplemented(&'static str),
+}
 
 /// Which Greek to synthesise a weight for.
 #[derive(Debug, Clone, Copy)]
@@ -63,39 +71,49 @@ pub fn synthesise_scalar_delta(sigma_at_x0: Expr, horizon: Expr) -> WeightIntegr
     }
 }
 
-/// Stub for the general scalar case (placeholder for parameter Greeks and
-/// the full tangent-flow BEL).
+/// Synthesise a weight for the general scalar case.
+///
+/// Returns `NotYetImplemented` until the general tangent-flow synthesis
+/// lands. Callers should use [`synthesise_scalar_delta`] for the
+/// constant-flow delta path; the runtime driver
+/// `euler_scalar_jit_delta_tangent` handles the general tangent-flow case
+/// numerically without going through this symbolic synthesis.
 pub fn synthesise_scalar(
     _sigma: &Expr,
     _mu: &Expr,
     greek: Greek,
     _horizon: Expr,
-) -> WeightIntegrand {
+) -> Result<WeightIntegrand, SynthesisError> {
     match greek {
-        Greek::Delta { .. } => unimplemented!(
-            "call synthesise_scalar_delta for scalar delta until the \
-             general tangent-flow synthesis lands"
-        ),
-        Greek::Parameter { .. } => {
-            unimplemented!("parameter Greeks require tangent-flow synthesis")
-        }
+        Greek::Delta { .. } => Err(SynthesisError::NotYetImplemented(
+            "general scalar delta: use synthesise_scalar_delta for constant-flow, \
+             or euler_scalar_jit_delta_tangent for general tangent-flow",
+        )),
+        Greek::Parameter { .. } => Err(SynthesisError::NotYetImplemented(
+            "parameter Greeks require tangent-flow synthesis",
+        )),
     }
 }
 
-/// Substitute the initial state into an `Expr` by replacing every
-/// `Var::State(i)` with the constant `x0[i]`. Useful so a weight coefficient
-/// can depend on `sigma(X_0)` while remaining a constant function of the
-/// path at JIT time.
+/// Freeze the state at `t = 0` by replacing every `Var::State(i)` in
+/// `expr` with the constant `x0[i]`.
+///
+/// Intended for precomputing quantities like `sigma(X_0)` that the BEL
+/// weight evaluates once at path start. **Panics** if `expr` references a
+/// `State(i)` with `i >= x0.len()`: silently returning the unbound symbol
+/// would mask a bug where the caller thinks they froze the state but left
+/// a free state variable inside `sigma(X_t)` at `t > 0`.
 pub fn bind_initial_state(expr: &Expr, x0: &[f64]) -> Expr {
     match expr {
         Expr::Const(c) => Expr::Const(*c),
         Expr::Var(Var::State(i)) => {
             let idx = *i as usize;
-            if idx < x0.len() {
-                Expr::Const(x0[idx])
-            } else {
-                Expr::Var(Var::State(*i))
-            }
+            assert!(
+                idx < x0.len(),
+                "bind_initial_state: expr references State({i}) but x0 has length {}",
+                x0.len(),
+            );
+            Expr::Const(x0[idx])
         }
         Expr::Var(v) => Expr::Var(v.clone()),
         Expr::Add(a, b) => Expr::Add(
@@ -107,10 +125,7 @@ pub fn bind_initial_state(expr: &Expr, x0: &[f64]) -> Expr {
             Arc::new(bind_initial_state(b, x0)),
         ),
         Expr::Pow(a, n) => Expr::Pow(Arc::new(bind_initial_state(a, x0)), *n),
-        Expr::Fun(f, a) => {
-            let _ = Fun::Exp; // keep import
-            Expr::Fun(*f, Arc::new(bind_initial_state(a, x0)))
-        }
+        Expr::Fun(f, a) => Expr::Fun(*f, Arc::new(bind_initial_state(a, x0))),
     }
 }
 

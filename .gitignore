@@ -33,6 +33,5 @@ perf.data*
 # Kernel cache (runtime artefact)
 /.elworthy-cache/
 
-# SymPy / Mathematica / scratch derivations (never tracked)
-/derivations/
+# Scratch derivations (not tracked); /derivations/ is tracked for auditability
 /scratch/

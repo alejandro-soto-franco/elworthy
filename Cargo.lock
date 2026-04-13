@@ -508,6 +508,7 @@ dependencies = [
  "elworthy-codegen",
  "elworthy-diff",
  "elworthy-expr",
+ "thiserror",
 ]
 
 [[package]]

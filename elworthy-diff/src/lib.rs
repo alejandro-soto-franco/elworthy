@@ -20,6 +20,9 @@ pub fn diff(expr: &Expr, wrt: &Var) -> Expr {
         Expr::Add(a, b) => diff(a, wrt) + diff(b, wrt),
         Expr::Mul(a, b) => diff(a, wrt) * (**b).clone() + (**a).clone() * diff(b, wrt),
         Expr::Pow(a, n) => {
+            if *n == 0 {
+                return Expr::c(0.0);
+            }
             let n_f = *n as f64;
             Expr::c(n_f) * (**a).clone().pow(n - 1) * diff(a, wrt)
         }

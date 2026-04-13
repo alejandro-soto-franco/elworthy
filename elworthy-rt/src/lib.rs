@@ -348,6 +348,104 @@ pub struct PriceAndDelta {
     pub delta: Estimate,
 }
 
+/// Antithetic sampling for BEL drivers.
+///
+/// When enabled, each drawn standard normal `Z` is reused with opposite
+/// sign on a paired path, and the two path samples are averaged into a
+/// single Monte Carlo sample. This cancels the odd-moment component of the
+/// payoff-times-weight estimator and typically cuts variance 2-4x for
+/// GBM-like diffusions with symmetric-ish payoffs (calls, puts, digitals).
+///
+/// Cost: two path integrations per sample. Net gain on typical setups is
+/// still >1x in wall clock for equal MSE.
+#[allow(clippy::too_many_arguments)]
+pub fn euler_scalar_jit_delta_bel_antithetic(
+    mu: &Expr,
+    sigma: &Expr,
+    payoff: &Expr,
+    params: &[f64],
+    x0: f64,
+    horizon: f64,
+    sigma_at_x0: f64,
+    n_steps: usize,
+    n_pairs: usize,
+    seed: u64,
+) -> Result<PriceAndDelta, elworthy_codegen::CodegenError> {
+    let shape = KernelShape {
+        n_state: 1,
+        n_params: params.len(),
+        n_dw: 0,
+    };
+    let mu_k = ScalarKernel::compile(mu, shape)?;
+    let sig_k = ScalarKernel::compile(sigma, shape)?;
+    let pay_k = ScalarKernel::compile(payoff, shape)?;
+
+    let dt = horizon / n_steps as f64;
+    let sqrt_dt = dt.sqrt();
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+    let bel_scale = 1.0 / (horizon * sigma_at_x0);
+
+    let mut sum_price = 0.0;
+    let mut sum_price_sq = 0.0;
+    let mut sum_delta = 0.0;
+    let mut sum_delta_sq = 0.0;
+
+    let mut zs = vec![0.0f64; n_steps];
+
+    for _ in 0..n_pairs {
+        // Draw normals once, reuse with opposite sign.
+        for z in zs.iter_mut() {
+            *z = StandardNormal.sample(&mut rng);
+        }
+        let (f_plus, w_plus) =
+            simulate_path(&mu_k, &sig_k, &pay_k, params, x0, horizon, n_steps, dt, sqrt_dt, &zs, 1.0);
+        let (f_minus, w_minus) =
+            simulate_path(&mu_k, &sig_k, &pay_k, params, x0, horizon, n_steps, dt, sqrt_dt, &zs, -1.0);
+
+        let f_bar = 0.5 * (f_plus + f_minus);
+        let delta_sample = 0.5 * (f_plus * w_plus + f_minus * w_minus) * bel_scale;
+
+        sum_price += f_bar;
+        sum_price_sq += f_bar * f_bar;
+        sum_delta += delta_sample;
+        sum_delta_sq += delta_sample * delta_sample;
+    }
+
+    Ok(PriceAndDelta {
+        price: finalise(sum_price, sum_price_sq, n_pairs),
+        delta: finalise(sum_delta, sum_delta_sq, n_pairs),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn simulate_path(
+    mu_k: &ScalarKernel,
+    sig_k: &ScalarKernel,
+    pay_k: &ScalarKernel,
+    params: &[f64],
+    x0: f64,
+    horizon: f64,
+    n_steps: usize,
+    dt: f64,
+    sqrt_dt: f64,
+    zs: &[f64],
+    sign: f64,
+) -> (f64, f64) {
+    let mut state = [x0];
+    let mut t = 0.0;
+    let mut w_total = 0.0;
+    for &z in zs.iter().take(n_steps) {
+        let dw = sign * sqrt_dt * z;
+        w_total += dw;
+        let drift = mu_k.call(&state, params, t, &[]);
+        let diffusion = sig_k.call(&state, params, t, &[]);
+        state[0] += drift * dt + diffusion * dw;
+        t += dt;
+    }
+    let f = pay_k.call(&state, params, horizon, &[]);
+    (f, w_total)
+}
+
 /// Euler-Maruyama price + Malliavin delta via the Bismut-Elworthy-Li weight.
 ///
 /// This is the first fully wired Greek path in elworthy: the driver
