@@ -7,6 +7,7 @@ members = [
     "elworthy-codegen",
     "elworthy-rt",
     "elworthy",
+    "elworthy-py",
 ]
 
 [workspace.package]
@@ -44,6 +45,10 @@ rand_xoshiro = "0.6"
 
 # Parallelism
 rayon = "1.10"
+
+# Python bindings
+pyo3  = { version = "0.23", features = ["extension-module", "abi3-py310"] }
+numpy = "0.23"
 
 # CLI
 clap = { version = "4", features = ["derive"] }

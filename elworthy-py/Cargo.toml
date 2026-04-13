@@ -1,0 +1,18 @@
+[package]
+name = "elworthy-py"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false  # cdylib Python extension; distributed via PyPI as `elworthy`, not crates.io
+description = "PyO3 bindings for elworthy (Python API)."
+
+[lib]
+name = "elworthy"
+crate-type = ["cdylib"]
+
+[dependencies]
+elworthy-rt.workspace = true
+pyo3 = { workspace = true }
+numpy = { workspace = true }

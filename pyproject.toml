@@ -1,0 +1,33 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "elworthy"
+version = "0.1.1"
+description = "Bismut-Elworthy-Li Malliavin weights for Monte Carlo Greeks: Rust core, Python API"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Alejandro Soto Franco" }]
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/alejandro-soto-franco/elworthy"
+Repository = "https://github.com/alejandro-soto-franco/elworthy"
+Issues = "https://github.com/alejandro-soto-franco/elworthy/issues"
+
+[tool.maturin]
+python-source = "python"
+module-name = "elworthy._elworthy"
+manifest-path = "elworthy-py/Cargo.toml"
+features = []

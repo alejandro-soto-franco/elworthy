@@ -35,3 +35,14 @@ perf.data*
 
 # Scratch derivations (not tracked); /derivations/ is tracked for auditability
 /scratch/
+
+# Python build artefacts
+.venv*/
+__pycache__/
+*.pyc
+*.pyd
+*.so
+/dist/
+/build/
+*.egg-info/
+/python/elworthy/*.so
