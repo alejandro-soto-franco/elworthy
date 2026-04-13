@@ -13,7 +13,8 @@
 
 use elworthy_expr::Expr;
 use elworthy_rt::{
-    euler_scalar_jit_delta_bel, euler_scalar_jit_delta_bel_antithetic, euler_scalar_jit,
+    euler_scalar_jit, euler_scalar_jit_delta_bel, euler_scalar_jit_delta_bel_antithetic,
+    euler_scalar_jit_delta_bel_parallel,
 };
 
 /// Standard normal CDF via erf, no external crate needed.
@@ -30,6 +31,37 @@ fn bs_call_price(s: f64, k: f64, r: f64, sigma: f64, t: f64) -> f64 {
     let d1 = ((s / k).ln() + (r + 0.5 * sigma * sigma) * t) / (sigma * t.sqrt());
     let d2 = d1 - sigma * t.sqrt();
     s * phi(d1) - k * (-r * t).exp() * phi(d2)
+}
+
+/// Rayon-parallel driver produces a statistically equivalent estimate to
+/// the serial driver. Not bit-identical (different path ordering and
+/// per-chunk RNG streams) but both should hit the analytic `exp(rT)`
+/// target within 4 stderr.
+#[test]
+fn parallel_driver_agrees_with_analytic_on_gbm() {
+    let x0 = 100.0;
+    let r = 0.05;
+    let sigma = 0.20;
+    let t = 1.0;
+
+    let mu = Expr::param(0) * Expr::state(0);
+    let sig = Expr::param(1) * Expr::state(0);
+    let payoff = Expr::state(0);
+
+    let par = euler_scalar_jit_delta_bel_parallel(
+        &mu, &sig, &payoff, &[r, sigma], x0, t, sigma * x0, 128, 40_000, 99, 0,
+    )
+    .expect("parallel BEL driver failed");
+
+    let expected = (r * t).exp();
+    let tol = 4.0 * par.delta.stderr + 1e-3;
+    assert!(
+        (par.delta.mean - expected).abs() < tol,
+        "parallel delta {} vs expected {} (stderr {})",
+        par.delta.mean,
+        expected,
+        par.delta.stderr,
+    );
 }
 
 #[test]
