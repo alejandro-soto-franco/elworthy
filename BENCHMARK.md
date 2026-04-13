@@ -18,12 +18,12 @@ Workload: 2000 Monte Carlo paths of 256 Euler steps each (512 000 path-steps tot
 
 | Scenario | time (ms) | throughput (M path-steps/s) | speedup vs interpreter |
 |---|---:|---:|---:|
-| GBM price, tree-walking interpreter | 75.3 | 6.80 | 1.0x |
-| GBM price, scalar Cranelift JIT | 3.4 | 149.94 | **22.0x** |
-| GBM price, 2-lane SIMD JIT (F64X2) | 2.7 | 187.24 | **27.5x** |
-| GBM price + delta (Bismut-Elworthy-Li, constant-flow weight) | 3.4 | 151.93 | 22.3x |
-| Heston price, 2-D multi-dim driver | 9.3 | 55.15 | 8.1x |
-| Heston price + delta (pathwise tangent flow, 2-D) | 32.9 | 15.56 | 2.3x |
+| GBM price, tree-walking interpreter | 69.6 | 7.36 | 1.0x |
+| GBM price, scalar Cranelift JIT | 3.2 | 157.91 | **21.5x** |
+| GBM price, 2-lane SIMD JIT (F64X2) | 2.6 | 197.23 | **26.8x** |
+| GBM price + delta (Bismut-Elworthy-Li, constant-flow weight) | 3.3 | 157.23 | 21.4x |
+| Heston price, 2-D multi-dim driver | 8.9 | 57.43 | 7.8x |
+| Heston price + delta (pathwise tangent flow, 2-D) | 32.2 | 15.89 | 2.2x |
 
 Takeaways:
 
@@ -38,8 +38,8 @@ Takeaways:
 The structural-hash-keyed in-memory cache lets calibration loops skip recompilation when the symbolic SDE is unchanged.
 
 ```
-cold Cranelift compile:      0.10 ms
-warm cache hit (avg):       0.064 us  [10 000 iterations]
+cold Cranelift compile:      0.09 ms
+warm cache hit (avg):       0.061 us  [10 000 iterations]
 ```
 
 That is a **1500x speedup per kernel retrieval** after the first compile.
@@ -52,8 +52,8 @@ Sweeping 7 parameter points through a 3-kernel SDE (`μ`, `σ`, payoff) at 500 p
 
 ```
 uncached (recompile each call):      1.8 ms
-cached kernel reuse:                 1.4 ms
-speedup:                            1.29x
+cached kernel reuse:                 1.3 ms
+speedup:                            1.31x
 ```
 
 The modest speedup on this tiny workload reflects that Cranelift compiles the three kernels in about 300 microseconds total, so the recompilation tax is a small fraction of the 1.8 ms Monte Carlo time. For realistic calibration with larger `n_paths * n_steps` the ratio narrows further toward the pure Monte Carlo cost; for very small inner workloads (e.g. online Greeks in a hot loop), the cache win grows toward the raw 1500x of a single kernel hit.
@@ -80,6 +80,35 @@ Three independent computations of the same price and delta:
 - The test is in `elworthy-rt/tests/benchmark.rs` under `cross_validate_european_call_bs`, behind `#[ignore]` so it runs on demand: `cargo test --release -p elworthy-rt --test benchmark cross_validate -- --nocapture --ignored`.
 - Uses Milstein rather than Euler-Maruyama for the path integration: Euler inflates the variance of GBM by `O(sigma^2 dt)`, which biases convex payoffs like the call option upward by a few percent. Milstein adds the `0.5 sigma sigma' (dW^2 - dt)` correction and removes that bias.
 - MC wall time for the above configuration: roughly 800 ms on the development laptop.
+
+## Python bindings (PyPI `elworthy`)
+
+Numbers from `python/benchmarks/bench_bel_delta.py` on the same laptop, release build of the PyO3 extension, Python 3.14, NumPy 2.x. Paths are simulated in NumPy for all three rows so the comparison is purely on the *weight-kernel* cost, which is what elworthy owns.
+
+### Constant-flow BEL delta (GBM, call payoff, 256 Euler steps)
+
+| n_paths | NumPy ref (ms) | elworthy low-level (ms) | elworthy high-level (ms) | low-level speedup |
+|---:|---:|---:|---:|---:|
+|     10 000 |    0.007 |    0.010 |    0.023 |  0.76x |
+|    100 000 |    0.046 |    0.077 |    0.239 |  0.59x |
+|  1 000 000 |    0.480 |    0.938 |    6.976 |  0.51x |
+
+The constant-flow weight is a single `W_T / (T * sigma(X_0))` elementwise scaling. NumPy already runs that at C speed and the PyO3 conversion overhead dominates, so elworthy is 1.3-2x *slower* here. Use the NumPy composition directly for this case; the Rust API exists for parity, not performance.
+
+### Tangent-flow BEL delta (GBM, per-step inner loop)
+
+| n_paths × n_steps | NumPy-Python tangent (ms) | elworthy tangent (ms) | speedup |
+|---:|---:|---:|---:|
+|  10 000 × 128 |  13.5 |   3.5 |  **3.8x** |
+|  50 000 × 256 | 362.8 |  34.4 | **10.5x** |
+
+The tangent-flow weight has a sequential time loop (`Y_{t+1} = f(Y_t, X_t, dW_t)`) that NumPy cannot vectorise across the time axis. Python-level per-step loops become the bottleneck, and elworthy's Rust kernel hits **10x speedup at 50k × 256**. Speedup grows with both n_paths and n_steps because the per-call PyO3 overhead amortises against more arithmetic per call.
+
+Takeaways for Python users:
+
+- **Use `bel_weights_constant_flow` for API ergonomics**, not speed. It's within 2x of a one-line NumPy expression.
+- **Use `bel_weights_tangent_flow` for real speedup.** The kernel's value-add is the per-step time loop, which Python fundamentally cannot vectorise.
+- **The result is a plain NumPy array**, so PyTorch / JAX autodiff through the `(f(X_T) * w).mean()` product is free — that's the real win, not raw throughput.
 
 ## Caveats
 
