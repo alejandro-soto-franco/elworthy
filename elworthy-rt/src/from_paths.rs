@@ -110,7 +110,11 @@ where
     MPF: Fn(f64) -> f64,
     SPF: Fn(f64) -> f64,
 {
-    assert_eq!(states.len(), dws.len(), "states and dws batch size mismatch");
+    assert_eq!(
+        states.len(),
+        dws.len(),
+        "states and dws batch size mismatch"
+    );
     assert!(horizon > 0.0, "horizon must be positive");
     assert!(n_steps > 0, "n_steps must be positive");
 

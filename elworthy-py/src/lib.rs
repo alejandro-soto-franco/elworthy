@@ -47,7 +47,11 @@ fn bel_weights_constant_flow<'py>(
         return Err(PyValueError::new_err("sigma_at_x0 must be positive"));
     }
     let scale = 1.0 / (horizon * sigma_at_x0);
-    let out: Vec<f64> = w_terminals.as_array().iter().map(|&wt| wt * scale).collect();
+    let out: Vec<f64> = w_terminals
+        .as_array()
+        .iter()
+        .map(|&wt| wt * scale)
+        .collect();
     Ok(out.into_pyarray_bound(py))
 }
 
@@ -135,7 +139,10 @@ fn bel_weights_tangent_flow<'py>(
 /// samples. Provided for symmetry so NumPy users do not have to write
 /// their own variance accumulator.
 #[pyfunction]
-fn price_from_samples<'py>(_py: Python<'py>, samples: PyReadonlyArray1<'_, f64>) -> PyResult<(f64, f64)> {
+fn price_from_samples<'py>(
+    _py: Python<'py>,
+    samples: PyReadonlyArray1<'_, f64>,
+) -> PyResult<(f64, f64)> {
     let s: Vec<f64> = samples.as_array().iter().copied().collect();
     let est = price_from_paths(&s, |x| x);
     Ok((est.mean, est.stderr))
@@ -167,8 +174,20 @@ fn price_and_delta_constant_flow(
     }
     let res = match payoff {
         "identity" => bel_delta_constant_flow_from_paths(&x, &w, |v| v, horizon, sigma_at_x0),
-        "call" => bel_delta_constant_flow_from_paths(&x, &w, |v| (v - strike).max(0.0), horizon, sigma_at_x0),
-        "put" => bel_delta_constant_flow_from_paths(&x, &w, |v| (strike - v).max(0.0), horizon, sigma_at_x0),
+        "call" => bel_delta_constant_flow_from_paths(
+            &x,
+            &w,
+            |v| (v - strike).max(0.0),
+            horizon,
+            sigma_at_x0,
+        ),
+        "put" => bel_delta_constant_flow_from_paths(
+            &x,
+            &w,
+            |v| (strike - v).max(0.0),
+            horizon,
+            sigma_at_x0,
+        ),
         "digital_call" => bel_delta_constant_flow_from_paths(
             &x,
             &w,
@@ -182,7 +201,12 @@ fn price_and_delta_constant_flow(
             )))
         }
     };
-    Ok((res.price.mean, res.delta.mean, res.price.stderr, res.delta.stderr))
+    Ok((
+        res.price.mean,
+        res.delta.mean,
+        res.price.stderr,
+        res.delta.stderr,
+    ))
 }
 
 /// High-level: GBM tangent-flow BEL delta over full path batches.
@@ -237,11 +261,7 @@ fn price_and_delta_tangent_flow(
         "call" => Box::new(move |v: f64| (v - strike).max(0.0)),
         "put" => Box::new(move |v: f64| (strike - v).max(0.0)),
         "digital_call" => Box::new(move |v: f64| if v > strike { 1.0 } else { 0.0 }),
-        other => {
-            return Err(PyValueError::new_err(format!(
-                "unknown payoff '{other}'",
-            )))
-        }
+        other => return Err(PyValueError::new_err(format!("unknown payoff '{other}'",))),
     };
 
     let mut sum_p = 0.0;

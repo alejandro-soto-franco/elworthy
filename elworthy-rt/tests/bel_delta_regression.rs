@@ -49,7 +49,17 @@ fn parallel_driver_agrees_with_analytic_on_gbm() {
     let payoff = Expr::state(0);
 
     let par = euler_scalar_jit_delta_bel_parallel(
-        &mu, &sig, &payoff, &[r, sigma], x0, t, sigma * x0, 128, 40_000, 99, 0,
+        &mu,
+        &sig,
+        &payoff,
+        &[r, sigma],
+        x0,
+        t,
+        sigma * x0,
+        128,
+        40_000,
+        99,
+        0,
     )
     .expect("parallel BEL driver failed");
 
@@ -101,7 +111,16 @@ fn gbm_bel_delta_matches_black_scholes_across_moneyness() {
         };
 
         let res = euler_scalar_jit_delta_bel(
-            &mu, &sig, &payoff, &[r, sigma], x0, t, sigma * x0, n_steps, n_paths, seed,
+            &mu,
+            &sig,
+            &payoff,
+            &[r, sigma],
+            x0,
+            t,
+            sigma * x0,
+            n_steps,
+            n_paths,
+            seed,
         )
         .expect("BEL delta driver failed");
 
@@ -155,8 +174,11 @@ fn gbm_bel_delta_softplus_call_matches_black_scholes() {
     let a = 1.0;
     let x_minus_k = Expr::state(0) + Expr::c(-k);
     let payoff = (Expr::c(1.0)
-        + Expr::Fun(Fun::Exp, std::sync::Arc::new(Expr::c(a) * x_minus_k.clone())))
-        .apply(Fun::Log)
+        + Expr::Fun(
+            Fun::Exp,
+            std::sync::Arc::new(Expr::c(a) * x_minus_k.clone()),
+        ))
+    .apply(Fun::Log)
         * Expr::c(1.0 / a);
 
     let res = euler_scalar_jit_delta_bel_antithetic(
@@ -221,9 +243,8 @@ fn digital_payoff_bel_converges_but_finite_difference_blows_up() {
     let a = 50.0;
     let sig_scale = Expr::c(a) * (Expr::state(0) + Expr::c(-k));
     let digital = Expr::c(1.0)
-        * (Expr::c(1.0)
-            + Expr::Fun(Fun::Exp, std::sync::Arc::new(Expr::c(-1.0) * sig_scale)))
-        .pow(-1);
+        * (Expr::c(1.0) + Expr::Fun(Fun::Exp, std::sync::Arc::new(Expr::c(-1.0) * sig_scale)))
+            .pow(-1);
 
     let bel = euler_scalar_jit_delta_bel(
         &mu,
@@ -245,11 +266,27 @@ fn digital_payoff_bel_converges_but_finite_difference_blows_up() {
     // of the difference is O(1/h) at the kink.
     let h = 0.01;
     let price_up = euler_scalar_jit(
-        &mu, &sig, &digital, &[r, sigma], x0 + h, t, n_steps, n_paths, seed,
+        &mu,
+        &sig,
+        &digital,
+        &[r, sigma],
+        x0 + h,
+        t,
+        n_steps,
+        n_paths,
+        seed,
     )
     .expect("FD up failed");
     let price_down = euler_scalar_jit(
-        &mu, &sig, &digital, &[r, sigma], x0 - h, t, n_steps, n_paths, seed,
+        &mu,
+        &sig,
+        &digital,
+        &[r, sigma],
+        x0 - h,
+        t,
+        n_steps,
+        n_paths,
+        seed,
     )
     .expect("FD down failed");
     let fd_delta = (price_up.mean - price_down.mean) / (2.0 * h);

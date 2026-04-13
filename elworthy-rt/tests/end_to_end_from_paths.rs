@@ -30,7 +30,15 @@ struct GbmBatch {
     n_steps: usize,
 }
 
-fn simulate_gbm_batch(x0: f64, r: f64, sigma: f64, t: f64, n_steps: usize, n_paths: usize, seed: u64) -> GbmBatch {
+fn simulate_gbm_batch(
+    x0: f64,
+    r: f64,
+    sigma: f64,
+    t: f64,
+    n_steps: usize,
+    n_paths: usize,
+    seed: u64,
+) -> GbmBatch {
     let dt = t / n_steps as f64;
     let sqrt_dt = dt.sqrt();
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
@@ -131,10 +139,10 @@ fn smoke_pathwise_to_elworthy_gbm_full_api_coverage() {
         &batch.dws,
         batch.horizon,
         batch.n_steps,
-        |x| x,           // payoff
-        |x| sigma * x,   // sigma(x)
-        |_x| r,          // mu'(x)
-        |_x| sigma,      // sigma'(x)
+        |x| x,         // payoff
+        |x| sigma * x, // sigma(x)
+        |_x| r,        // mu'(x)
+        |_x| sigma,    // sigma'(x)
     );
     let tf_tol = 4.0 * tf.delta.stderr + 1e-3;
     assert!(
@@ -161,9 +169,12 @@ fn smoke_pathwise_to_elworthy_gbm_full_api_coverage() {
         "smoke summary: price {:.4} (stderr {:.4}), \
          cf delta {:.4} (stderr {:.4}), \
          tf delta {:.4} (stderr {:.4}), analytic delta {:.4}",
-        price.mean, price.stderr,
-        cf.delta.mean, cf.delta.stderr,
-        tf.delta.mean, tf.delta.stderr,
+        price.mean,
+        price.stderr,
+        cf.delta.mean,
+        cf.delta.stderr,
+        tf.delta.mean,
+        tf.delta.stderr,
         expected_delta,
     );
 }

@@ -414,8 +414,10 @@ pub fn euler_scalar_jit_delta_bel_parallel(
             let sig_k = ScalarKernel::compile(sigma, shape)?;
             let pay_k = ScalarKernel::compile(payoff, shape)?;
 
-            let mut rng =
-                Xoshiro256PlusPlus::seed_from_u64(seed.wrapping_add(idx as u64).wrapping_mul(0x9E3779B97F4A7C15));
+            let mut rng = Xoshiro256PlusPlus::seed_from_u64(
+                seed.wrapping_add(idx as u64)
+                    .wrapping_mul(0x9E3779B97F4A7C15),
+            );
 
             let mut acc = ChunkAccum::default();
             let mut state = [0.0f64; 1];
@@ -522,10 +524,12 @@ pub fn euler_scalar_jit_delta_bel_antithetic(
         for z in zs.iter_mut() {
             *z = StandardNormal.sample(&mut rng);
         }
-        let (f_plus, w_plus) =
-            simulate_path(&mu_k, &sig_k, &pay_k, params, x0, horizon, n_steps, dt, sqrt_dt, &zs, 1.0);
-        let (f_minus, w_minus) =
-            simulate_path(&mu_k, &sig_k, &pay_k, params, x0, horizon, n_steps, dt, sqrt_dt, &zs, -1.0);
+        let (f_plus, w_plus) = simulate_path(
+            &mu_k, &sig_k, &pay_k, params, x0, horizon, n_steps, dt, sqrt_dt, &zs, 1.0,
+        );
+        let (f_minus, w_minus) = simulate_path(
+            &mu_k, &sig_k, &pay_k, params, x0, horizon, n_steps, dt, sqrt_dt, &zs, -1.0,
+        );
 
         let f_bar = 0.5 * (f_plus + f_minus);
         let delta_sample = 0.5 * (f_plus * w_plus + f_minus * w_minus) * bel_scale;
