@@ -1,10 +1,11 @@
 # elworthy
 
 [![crates.io](https://img.shields.io/crates/v/elworthy.svg)](https://crates.io/crates/elworthy)
+[![PyPI](https://img.shields.io/pypi/v/elworthy.svg)](https://pypi.org/project/elworthy/)
 [![docs.rs](https://docs.rs/elworthy/badge.svg)](https://docs.rs/elworthy)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-A Rust JIT compiler that specialises Bismut-Elworthy-Li formulas into SIMD kernels for unbiased Monte Carlo Greeks on non-stationary SDEs.
+A Rust JIT compiler that specialises Bismut-Elworthy-Li formulas into SIMD kernels for unbiased Monte Carlo Greeks on non-stationary SDEs. Python bindings ship on PyPI: `pip install elworthy`. The Python API returns per-path Malliavin weights as NumPy arrays so users compose payoffs in NumPy / PyTorch / JAX and stay inside their autodiff framework of choice.
 
 Named after K. David Elworthy, co-author of the Bismut-Elworthy-Li integration-by-parts formula:
 
