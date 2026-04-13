@@ -40,10 +40,10 @@ fn bel_weights_constant_flow<'py>(
     horizon: f64,
     sigma_at_x0: f64,
 ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-    if !(horizon > 0.0) {
+    if horizon <= 0.0 || horizon.is_nan() {
         return Err(PyValueError::new_err("horizon must be positive"));
     }
-    if !(sigma_at_x0 > 0.0) {
+    if sigma_at_x0 <= 0.0 || sigma_at_x0.is_nan() {
         return Err(PyValueError::new_err("sigma_at_x0 must be positive"));
     }
     let scale = 1.0 / (horizon * sigma_at_x0);
@@ -52,7 +52,7 @@ fn bel_weights_constant_flow<'py>(
         .iter()
         .map(|&wt| wt * scale)
         .collect();
-    Ok(out.into_pyarray_bound(py))
+    Ok(out.into_pyarray(py))
 }
 
 /// Low-level: compute per-path Bismut-Elworthy-Li **tangent-flow**
@@ -80,7 +80,7 @@ fn bel_weights_tangent_flow<'py>(
     d_sigma_dx: PyReadonlyArray2<'_, f64>,
     horizon: f64,
 ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-    if !(horizon > 0.0) {
+    if horizon <= 0.0 || horizon.is_nan() {
         return Err(PyValueError::new_err("horizon must be positive"));
     }
 
@@ -132,7 +132,7 @@ fn bel_weights_tangent_flow<'py>(
         out.push(pi);
     }
 
-    Ok(out.into_pyarray_bound(py))
+    Ok(out.into_pyarray(py))
 }
 
 /// Low-level: plain Monte Carlo mean and stderr from terminal payoff
