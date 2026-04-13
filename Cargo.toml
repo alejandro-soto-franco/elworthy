@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 authors = ["Alejandro Soto Franco"]
 license = "Apache-2.0"
@@ -20,11 +20,11 @@ rust-version = "1.75"
 
 [workspace.dependencies]
 # Intra-workspace (version + path so crates.io publish works while local builds still use the workspace path)
-elworthy-expr    = { path = "elworthy-expr",    version = "0.1.2" }
-elworthy-diff    = { path = "elworthy-diff",    version = "0.1.2" }
-elworthy-weight  = { path = "elworthy-weight",  version = "0.1.2" }
-elworthy-codegen = { path = "elworthy-codegen", version = "0.1.2" }
-elworthy-rt      = { path = "elworthy-rt",      version = "0.1.2" }
+elworthy-expr    = { path = "elworthy-expr",    version = "0.1.3" }
+elworthy-diff    = { path = "elworthy-diff",    version = "0.1.3" }
+elworthy-weight  = { path = "elworthy-weight",  version = "0.1.3" }
+elworthy-codegen = { path = "elworthy-codegen", version = "0.1.3" }
+elworthy-rt      = { path = "elworthy-rt",      version = "0.1.3" }
 
 # JIT backend
 cranelift         = "0.110"
