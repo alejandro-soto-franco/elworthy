@@ -206,28 +206,26 @@ fn bel_weights_tangent_flow_parallel<'py>(
             .enumerate()
             .map(|(i, c)| (i * chunk_size, c))
             .collect();
-        let res: Result<(), String> = chunks
-            .into_par_iter()
-            .try_for_each(|(start, slice)| {
-                for (j, out_pi) in slice.iter_mut().enumerate() {
-                    let k = start + j;
-                    let mut y = 1.0_f64;
-                    let mut pi = 0.0_f64;
-                    for i in 0..n_steps {
-                        let sig_i = sg[[k, i]];
-                        if sig_i == 0.0 {
-                            return Err(format!(
-                                "sigma[{k}, {i}] = 0 produces division by zero in BEL weight"
-                            ));
-                        }
-                        let dw_i = dw[[k, i]];
-                        pi += inv_t * (y / sig_i) * dw_i;
-                        y += dm[[k, i]] * y * dt + ds[[k, i]] * y * dw_i;
+        let res: Result<(), String> = chunks.into_par_iter().try_for_each(|(start, slice)| {
+            for (j, out_pi) in slice.iter_mut().enumerate() {
+                let k = start + j;
+                let mut y = 1.0_f64;
+                let mut pi = 0.0_f64;
+                for i in 0..n_steps {
+                    let sig_i = sg[[k, i]];
+                    if sig_i == 0.0 {
+                        return Err(format!(
+                            "sigma[{k}, {i}] = 0 produces division by zero in BEL weight"
+                        ));
                     }
-                    *out_pi = pi;
+                    let dw_i = dw[[k, i]];
+                    pi += inv_t * (y / sig_i) * dw_i;
+                    y += dm[[k, i]] * y * dt + ds[[k, i]] * y * dw_i;
                 }
-                Ok(())
-            });
+                *out_pi = pi;
+            }
+            Ok(())
+        });
         res.map(|_| buf)
     });
 

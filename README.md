@@ -1,9 +1,23 @@
 # elworthy
 
+[![CI](https://github.com/alejandro-soto-franco/elworthy/actions/workflows/ci.yml/badge.svg)](https://github.com/alejandro-soto-franco/elworthy/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/elworthy.svg)](https://crates.io/crates/elworthy)
 [![PyPI](https://img.shields.io/pypi/v/elworthy.svg)](https://pypi.org/project/elworthy/)
 [![docs.rs](https://docs.rs/elworthy/badge.svg)](https://docs.rs/elworthy)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+## Why elworthy over Numba
+
+Numba `@njit` is excellent for general-purpose Python loop acceleration. Where elworthy is unique:
+
+| Property | Numba pathwise | elworthy BEL |
+|---|---|---|
+| Smooth payoff delta (call) | correct, fast | correct, ~equal speed |
+| **Digital / barrier delta** | **silently returns 0** (Dirac in `f'`) | **unbiased**, hits analytic within stderr |
+| Weight derivation | user writes the integrator | symbolic synthesis from the SDE |
+| Output type | Numba arrays (no autograd) | plain NumPy → Torch / JAX backprop free |
+
+Demo: `python python/benchmarks/demo_digital_payoff_correctness.py` shows Numba pathwise digital delta = `0.000` (bias `-0.0197`) vs elworthy BEL `0.0198` (bias `+0.0001`) against analytic `0.0197`.
 
 A Rust JIT compiler that specialises Bismut-Elworthy-Li formulas into SIMD kernels for unbiased Monte Carlo Greeks on non-stationary SDEs. Python bindings ship on PyPI: `pip install elworthy`. The Python API returns per-path Malliavin weights as NumPy arrays so users compose payoffs in NumPy / PyTorch / JAX and stay inside their autodiff framework of choice.
 
