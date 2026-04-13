@@ -97,18 +97,24 @@ The constant-flow weight is a single `W_T / (T * sigma(X_0))` elementwise scalin
 
 ### Tangent-flow BEL delta (GBM, per-step inner loop)
 
-| n_paths × n_steps | NumPy-Python tangent (ms) | elworthy tangent (ms) | speedup |
-|---:|---:|---:|---:|
-|  10 000 × 128 |  13.5 |   3.5 |  **3.8x** |
-|  50 000 × 256 | 362.8 |  34.4 | **10.5x** |
+Compared against pure-NumPy, a Numba `@njit` sequential kernel, and a Numba `@njit(parallel=True)` kernel using `prange` over paths. Both Numba kernels warmed before timing so the numbers below exclude compilation.
 
-The tangent-flow weight has a sequential time loop (`Y_{t+1} = f(Y_t, X_t, dW_t)`) that NumPy cannot vectorise across the time axis. Python-level per-step loops become the bottleneck, and elworthy's Rust kernel hits **10x speedup at 50k × 256**. Speedup grows with both n_paths and n_steps because the per-call PyO3 overhead amortises against more arithmetic per call.
+| n_paths × n_steps | NumPy-Py (ms) | Numba seq (ms) | Numba par (ms) | elworthy (ms) |
+|---:|---:|---:|---:|---:|
+|  10 000 × 128 |  12.0 |  3.4 | 0.25 |  3.3 |
+|  50 000 × 256 | 349.8 | 34.5 | 7.66 | 33.9 |
+
+Reading the table honestly:
+
+- **Numba sequential ≈ elworthy sequential.** A first-class AOT/JIT compiled Python loop gets within a few percent of the Rust kernel, which is the right result: both compile to similar machine code.
+- **Numba parallel beats elworthy 4-10x.** Not because Numba generates faster arithmetic, but because `prange` spawns worker threads while the PyO3 binding runs single-threaded. elworthy has a rayon-parallel driver internally (`euler_scalar_jit_delta_bel_parallel`) but the Python layer currently calls the serial path. Exposing parallel execution through PyO3 is the obvious follow-up and closes this gap.
+- **NumPy is the clear loser** on per-step sequential work, regardless of path count — time-axis vectorisation is not available here.
 
 Takeaways for Python users:
 
-- **Use `bel_weights_constant_flow` for API ergonomics**, not speed. It's within 2x of a one-line NumPy expression.
-- **Use `bel_weights_tangent_flow` for real speedup.** The kernel's value-add is the per-step time loop, which Python fundamentally cannot vectorise.
-- **The result is a plain NumPy array**, so PyTorch / JAX autodiff through the `(f(X_T) * w).mean()` product is free — that's the real win, not raw throughput.
+- **Use `bel_weights_constant_flow` for API ergonomics**, not speed. It is within 2x of a one-line NumPy expression.
+- **`bel_weights_tangent_flow` gives a 4-10x speedup over pure NumPy** and matches Numba single-thread. Numba `parallel=True` is faster until the PyO3 binding exposes rayon.
+- **The result is a plain NumPy array**, so PyTorch / JAX autodiff through `(f(X_T) * w).mean()` is free — that is the real value-add, not raw throughput.
 
 ## Caveats
 

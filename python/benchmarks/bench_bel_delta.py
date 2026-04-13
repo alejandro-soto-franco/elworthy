@@ -19,8 +19,48 @@ from __future__ import annotations
 import time
 
 import numpy as np
+from numba import njit, prange
 
 import elworthy
+
+
+@njit(cache=True, fastmath=True, parallel=False)
+def numba_tangent_seq(states, dws, sigma_field, d_mu_dx, d_sigma_dx, horizon):
+    """Numba @njit, single-threaded. Fair comparison to elworthy's Rust
+    binding which does not spawn rayon workers from the Python entry."""
+    n_paths, n_steps = dws.shape
+    dt = horizon / n_steps
+    inv_t = 1.0 / horizon
+    out = np.empty(n_paths)
+    for k in range(n_paths):
+        y = 1.0
+        pi = 0.0
+        for i in range(n_steps):
+            sig_i = sigma_field[k, i]
+            dw_i = dws[k, i]
+            pi += inv_t * (y / sig_i) * dw_i
+            y = y + d_mu_dx[k, i] * y * dt + d_sigma_dx[k, i] * y * dw_i
+        out[k] = pi
+    return out
+
+
+@njit(cache=True, fastmath=True, parallel=True)
+def numba_tangent_par(states, dws, sigma_field, d_mu_dx, d_sigma_dx, horizon):
+    """Numba @njit, parallel over paths via prange."""
+    n_paths, n_steps = dws.shape
+    dt = horizon / n_steps
+    inv_t = 1.0 / horizon
+    out = np.empty(n_paths)
+    for k in prange(n_paths):
+        y = 1.0
+        pi = 0.0
+        for i in range(n_steps):
+            sig_i = sigma_field[k, i]
+            dw_i = dws[k, i]
+            pi += inv_t * (y / sig_i) * dw_i
+            y = y + d_mu_dx[k, i] * y * dt + d_sigma_dx[k, i] * y * dw_i
+        out[k] = pi
+    return out
 
 
 def simulate_gbm(x0: float, r: float, sigma: float, T: float, n_steps: int, n_paths: int, seed: int):
@@ -91,8 +131,16 @@ def main() -> None:
     print()
     print("Tangent-flow (full-path) benchmark, n_paths × n_steps:")
     print()
-    print(f"| n_paths × n_steps | NumPy-Python tangent (ms) | elworthy tangent (ms) | speedup |")
-    print(f"|---:|---:|---:|---:|")
+    print(f"| n_paths × n_steps | NumPy-Py (ms) | Numba seq (ms) | Numba par (ms) | elworthy (ms) |")
+    print(f"|---:|---:|---:|---:|---:|")
+
+    # Warm both numba kernels once (first call includes compile time).
+    _args = (
+        np.ones((4, 4)), np.ones((4, 4)), np.ones((4, 4)),
+        np.ones((4, 4)), np.ones((4, 4)), 1.0,
+    )
+    _ = numba_tangent_seq(*_args)
+    _ = numba_tangent_par(*_args)
 
     for n_paths, n_steps in ((10_000, 128), (50_000, 256)):
         rng = np.random.default_rng(seed=7)
@@ -122,21 +170,29 @@ def main() -> None:
                 y = y + d_mu_dx_field[:, i] * y * dt + d_sigma_dx_field[:, i] * y * dw_i
             return pi
 
+        def nb_seq():
+            return numba_tangent_seq(X, dW, sigma_field, d_mu_dx_field, d_sigma_dx_field, T)
+
+        def nb_par():
+            return numba_tangent_par(X, dW, sigma_field, d_mu_dx_field, d_sigma_dx_field, T)
+
         def elworthy_tangent():
             return elworthy.bel_weights_tangent_flow(
                 X, dW, sigma_field, d_mu_dx_field, d_sigma_dx_field, T,
             )
 
         t_np, pi_np = timed(numpy_tangent, repeats=3)
-        t_el, pi_el = timed(elworthy_tangent, repeats=3)
+        t_seq, pi_seq = timed(nb_seq, repeats=5)
+        t_par, pi_par = timed(nb_par, repeats=5)
+        t_el, pi_el = timed(elworthy_tangent, repeats=5)
 
-        err = float(np.max(np.abs(pi_np - pi_el)))
-        assert err < 1e-10, f"tangent-flow weight mismatch: max |diff| = {err}"
+        for name, pi in [("numba-seq", pi_seq), ("numba-par", pi_par), ("elworthy", pi_el)]:
+            err = float(np.max(np.abs(pi_np - pi)))
+            assert err < 1e-10, f"{name} vs numpy: max |diff| = {err}"
 
-        speedup = t_np / t_el
         print(
             f"| {n_paths:>7_} × {n_steps:>3} | "
-            f"{t_np * 1e3:9.2f} | {t_el * 1e3:9.2f} | {speedup:5.2f}x |"
+            f"{t_np * 1e3:9.2f} | {t_seq * 1e3:9.2f} | {t_par * 1e3:9.2f} | {t_el * 1e3:9.2f} |"
         )
 
 
