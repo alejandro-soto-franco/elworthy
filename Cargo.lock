@@ -469,7 +469,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "elworthy"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "elworthy-codegen"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cranelift",
  "cranelift-jit",
@@ -498,21 +498,21 @@ dependencies = [
 
 [[package]]
 name = "elworthy-diff"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "elworthy-expr",
 ]
 
 [[package]]
 name = "elworthy-expr"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "elworthy-py"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "elworthy-rt",
  "numpy",
@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "elworthy-rt"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blackscholes",
  "criterion",
@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "elworthy-weight"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "elworthy-codegen",
  "elworthy-diff",
