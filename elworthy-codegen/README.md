@@ -17,6 +17,11 @@ Part of the [**elworthy**](https://github.com/alejandro-soto-franco/elworthy) wo
   ```
 
   produced from any `Expr`.
+- `VectorKernel`: two-lane Cranelift SIMD JIT (128-bit `f64x2`) that evaluates two Monte Carlo paths per call. Structure-of-arrays input layout; broadcasts scalar `params` / `time`; supports arithmetic, integer powers, `sqrt`, and all `Fun` variants (`exp`, `log`, `sin`, `cos`) via per-lane `extractlane` → libm → `insertlane`.
+- `KernelCache`: in-memory structural-hash cache for zero-recompile kernel reuse across calibration loops.
+- `DiskCache`: persisted AST cache (canonicalised `Expr`, not machine code) at `$ELWORTHY_CACHE_DIR` / `$XDG_CACHE_HOME/elworthy/` / `~/.cache/elworthy/`. Atomic writes via rename; format-version stamp for stale-file detection.
+- `serial`: compact binary `Expr` serialisation with roundtrip tests.
+- `cpu::has_avx2`, `preferred_f64_lanes`: runtime CPU detection. Scaffolds the feature-gated `simd_avx2` path for a future `VectorKernel4`.
 
 ## Supported IR constructions
 
@@ -35,13 +40,12 @@ Part of the [**elworthy**](https://github.com/alejandro-soto-franco/elworthy) wo
 
 ## Correctness strategy
 
-Every JIT-compiled kernel is cross-checked against the scalar interpreter on randomly generated inputs using `proptest`. A kernel that disagrees with the interpreter at any tested point fails the property test before the kernel is usable downstream.
+Every JIT-compiled kernel is cross-checked against the scalar interpreter on randomly generated inputs using `proptest`. A kernel that disagrees with the interpreter at any tested point fails the property test before the kernel is usable downstream. For `VectorKernel`, both lanes are asserted against the scalar JIT per lane across 96 random expressions.
 
 ## Future work
 
-- `VectorKernel` producing `f64x4` / `f64x8` outputs for SIMD-over-paths.
-- Hot-path persistence to `$CACHE_DIR/.elworthy-cache` keyed on canonicalised AST hash.
-- Optional LLVM backend via `inkwell` behind a feature flag for autovec comparisons.
+- `VectorKernel4` (AVX2 `f64x4`) behind the `simd_avx2` feature.
+- Optional LLVM backend via `inkwell` for autovec comparisons.
 
 ## Licence
 

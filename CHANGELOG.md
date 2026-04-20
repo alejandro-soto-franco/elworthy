@@ -6,6 +6,42 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Planned
+
+- `VectorKernel4` (AVX2 F64X4) behind the `simd_avx2` feature.
+- General-SDE Malliavin parameter weight without relying on a closed-form transition density.
+- Gamma via second-order Bismut-Elworthy-Li.
+- QuantLib reference benchmarks for Heston delta.
+
+## [0.1.3] - 2026-04-21
+
+### Added
+
+- `bel_weights_tangent_flow_parallel` in `elworthy-py`: rayon-parallel tangent-flow weight driver with `py.allow_threads` GIL release; matches Numba `prange` at 10 000 × 128 and 50 000 × 256 path configurations.
+- Digital-payoff correctness demo (`python/benchmarks/demo_digital_payoff_correctness.py`) showing Numba `@njit` pathwise digital delta silently returning 0 while `elworthy` BEL hits analytic `0.0197` within 1 stderr.
+- CI badge + README differentiation table comparing elworthy BEL to Numba pathwise on smooth vs non-smooth payoffs.
+- `BENCHMARK.md` refresh: Rust numbers re-measured, full Python benchmark section added with single-thread and parallel Numba comparison.
+
+### Changed
+
+- Clippy fixes: `neg-cmp-op-on-partial-ord`, removal of deprecated `into_pyarray` call site.
+- `cargo fmt --all` applied across workspace.
+- `cargo doc` now excludes `elworthy-py` cdylib to work around a rustdoc ICE on stable.
+
+## [0.1.2] - 2026-04-13 (PyPI only, not published to crates.io)
+
+### Added
+
+- **`elworthy-rt::from_paths` module** for externally-generated trajectories. `bel_delta_constant_flow_from_paths` and `bel_delta_tangent_from_paths` let callers drive path simulation in their own code (e.g. `pathwise-core`) and hand the terminal states + Brownian values to elworthy for Greek estimation.
+- `euler_scalar_jit_delta_bel_parallel`: rayon-parallel BEL delta driver. Each worker compiles its own kernel copies; per-chunk seed-splitting keeps the run reproducible.
+- `euler_scalar_jit_delta_bel_antithetic`: antithetic-variable variance reduction on the BEL driver.
+- BEL regression tests + synthesis error plumbing through `PriceAndDelta`.
+- Cross-validation: `cross_validate_european_call_bs` test checks elworthy BEL against Black-Scholes closed form and the external `blackscholes` crate (v0.24) within 4 MC stderrs.
+- **`elworthy-py` PyO3 bindings**: two-tier Python API (`bel_weights_constant_flow`, `bel_weights_tangent_flow`). Returns NumPy arrays so users compose payoffs in NumPy / PyTorch / JAX.
+- GitHub Actions `release.yml`: OIDC trusted publishing to PyPI.
+
+## [0.1.1] - 2026-04-13
+
 ### Added
 
 - Six-crate workspace scaffold: `elworthy-expr`, `elworthy-diff`, `elworthy-weight`, `elworthy-codegen`, `elworthy-rt`, `elworthy`.
@@ -74,9 +110,3 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Derivation machine-checked in `derivations/gbm_malliavin_param.py` (gitignored). SymPy derives both weights from the log-normal transition density and verifies the integration-by-parts identity symbolically against three independent test payoffs (`x`, `x^2`, `log(x)`); all six residuals are exactly zero.
 - Rust tests validate rho on linear payoff and vega on `X_T^2` against their analytic closed forms.
 
-### Planned
-
-- SIMD-over-paths `VectorKernel` (f64x4 / f64x8).
-- Kernel cache persisted across process restarts.
-- Parameter-Greek synthesis via tangent flow.
-- Heston delta benchmark against QuantLib.

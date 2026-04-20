@@ -10,6 +10,12 @@ Part of the [**elworthy**](https://github.com/alejandro-soto-franco/elworthy) wo
 ## Install
 
 ```bash
+cargo install elworthy
+```
+
+Or from a workspace checkout:
+
+```bash
 cargo install --path elworthy
 ```
 
@@ -20,20 +26,43 @@ cargo install --path elworthy
 Scalar Euler-Maruyama smoke test on geometric Brownian motion:
 
 ```bash
-elworthy gbm --r 0.05 --sigma 0.2 --x0 100 --t 1.0 --paths 20000
+elworthy gbm --backend jit --r 0.05 --sigma 0.2 --x0 100 --t 1.0 --paths 20000
 ```
 
-Output:
+Use `--backend interp` to fall back to the tree-walking interpreter (slower; avoids the SELinux `execmem` constraint for Cranelift).
+
+### `gbm-delta`
+
+Bismut-Elworthy-Li delta on GBM via the constant-flow Malliavin weight:
+
+```bash
+elworthy gbm-delta --paths 40000
+```
+
+Expected output at default parameters:
 
 ```
-E[X_T] ~ 105.1203 (stderr 0.1473) | closed form 105.1271
+price   ~ 105.12xx (stderr 0.14xx) | closed form 105.1271
+delta   ~   1.05xx (stderr 0.02xx) | closed form 1.0513
 ```
 
-This confirms the symbolic-expression -> interpreter -> Monte Carlo pipeline is wired correctly and that the driver reproduces the analytic mean of GBM within statistical tolerance.
+The delta is the headline Greek for the current workspace: one scalar SDE, one smooth payoff, BEL weight synthesised symbolically by `elworthy-weight` and `elworthy-diff`, then lowered to a Cranelift kernel.
 
-### More commands
+### SELinux note (Fedora / RHEL)
 
-Heston delta via Bismut-Elworthy-Li, benchmark suite, and kernel-cache introspection land in subsequent revisions.
+The JIT backend requires `execmem` permission so Cranelift can map newly generated code as executable. Under SELinux `enforcing` this is denied for ordinary user binaries:
+
+```
+Error: cranelift module error: Backend error: unable to make memory readable+executable
+```
+
+Workarounds:
+
+- Run via `cargo test` (the test harness domain already grants `execmem`).
+- Relax policy with `sudo setsebool -P selinuxuser_execheap 1`.
+- Use `--backend interp` for a JIT-free run.
+
+See the workspace [README](../README.md) for full context, additional commands, and the Python API on PyPI.
 
 ## Licence
 
