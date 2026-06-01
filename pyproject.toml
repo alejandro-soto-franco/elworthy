@@ -31,3 +31,6 @@ python-source = "python"
 module-name = "elworthy._elworthy"
 manifest-path = "elworthy-py/Cargo.toml"
 features = []
+
+[tool.pyrefly]
+# Enables full Pyrefly type checking; run with `uvc`. See ~/.claude/rules/pyrefly.md
