@@ -52,9 +52,6 @@ numpy = "0.23"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
-
-# Logging
-tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]

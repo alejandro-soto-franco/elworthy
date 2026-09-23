@@ -6,6 +6,3 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Symbolic expression AST, canonicalisation, and CSE for elworthy."
-
-[dependencies]
-thiserror.workspace = true
