@@ -6,7 +6,7 @@
 [![docs.rs](https://docs.rs/elworthy/badge.svg)](https://docs.rs/elworthy)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-## Why elworthy over Numba
+## Comparison with Numba
 
 Numba `@njit` is excellent for general-purpose Python loop acceleration. Where elworthy is unique:
 
@@ -28,7 +28,7 @@ $$
 = \mathbb{E}\left[ f(X_T) \cdot \frac{1}{T} \int_0^T \sigma^{-1}(X_s)^\top  \partial_x X_s  \mathrm{d}W_s \right].
 $$
 
-`elworthy` takes a symbolic SDE, symbolically differentiates its coefficients, synthesises the Malliavin weight for a requested Greek, and lowers the entire inner-loop body (state update + weight accumulation + payoff) to a single kernel via Cranelift. Each SIMD lane carries one independent Monte Carlo path.
+`elworthy` takes a symbolic SDE, symbolically differentiates its coefficients, synthesises the Malliavin weight for a requested Greek, and lowers the entire inner-loop body (state update + weight accumulation + payoff) to a single kernel via Cranelift. Each SIMD lane runs one independent Monte Carlo path.
 
 ## Status
 
@@ -72,7 +72,7 @@ On a development laptop (x86_64, single core, release profile):
 | Heston price (2-D) | 55 | 8x |
 | Heston price + pathwise delta (2-D, full Jacobian) | 16 | 2.3x |
 
-Kernel cache hit: 64 ns per retrieval vs ~100 us for a cold Cranelift compile, a 1500x speedup on calibration inner loops.
+Kernel cache hit: 64 ns per retrieval vs ~100 us for a cold Cranelift compile (a 1500x speedup on calibration inner loops).
 
 **Cross-validation.** The JIT+BEL stack is cross-validated against Black-Scholes closed form (inline, `libm::erf`) and the independent [`blackscholes`](https://github.com/hayden4r4/blackscholes-rust) crate (v0.24). On a European call at `S_0 = K = 100`, `r = 0.05`, `sigma = 0.2`, `T = 1`, 200 000 Milstein paths x 512 steps, elworthy's Monte Carlo price and Bismut-Elworthy-Li delta agree with both analytic references within four Monte Carlo standard errors. Full table in [BENCHMARK.md](BENCHMARK.md#cross-validation).
 
